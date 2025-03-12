@@ -1,0 +1,16 @@
+---
+description: 使用next
+globs: 
+alwaysApply: false
+---
+
+这是一个使用Next.js 创建的学生做题网站
+
+#编码规范
+  - 使用函数是组件和Hooks，避免类组件
+  - 变量名和函数名使用camelCase规范，组件名使用PascalCase规范
+
+#首选的库
+  - 使用Next.js 做导航
+  - 使用tailwind 进行CSS-in-JS样式设计
+  - 组件库统一使用shadcn/ui，若没有对应组件使用tailwind自定义组件
