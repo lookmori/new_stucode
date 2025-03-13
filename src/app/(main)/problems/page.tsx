@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Problem, ProblemStatus } from "@/types/problem";
@@ -54,15 +54,42 @@ const statusOptions = [
 // 用户角色类型
 type Role = "admin" | "teacher" | "student";
 
+interface WorkflowResult {
+  code: number;
+  cost: string;
+  data: string;
+  debug_url: string;
+  msg: string;
+  token: number;
+}
+
+interface Question {
+  ques_name: string;
+  ques_desc: string;
+  ques_in: string;
+  ques_out: string;
+  ques_ans: string;
+}
+
 export default function ProblemsPage() {
   const { toast } = useToast();
   const searchParams = useSearchParams();
   const [workflowInput, setWorkflowInput] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [workflowResult, setWorkflowResult] = useState<WorkflowResult | null>(null);
+  const [isResultDialogOpen, setIsResultDialogOpen] = useState(false);
+  const [isClient, setIsClient] = useState(false);
+
+  // 标记客户端渲染
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   // 检查URL中的授权码
   useEffect(() => {
+    if (!isClient) return;
+
     const code = searchParams.get("code");
     if (code) {
       console.log("收到授权码:", code);
@@ -71,14 +98,12 @@ export default function ProblemsPage() {
         .then((tokenData) => {
           console.log("获取到token:", tokenData);
           // 保存token到localStorage
-          if (typeof window !== "undefined") {
-            localStorage.setItem("coze_access_token", tokenData.access_token);
-            // 如果有保存的输入，恢复它
-            const savedInput = localStorage.getItem("coze_workflow_input");
-            if (savedInput) {
-              setWorkflowInput(savedInput);
-              setIsDialogOpen(true);
-            }
+          localStorage.setItem("coze_access_token", tokenData.access_token);
+          // 如果有保存的输入，恢复它
+          const savedInput = localStorage.getItem("coze_workflow_input");
+          if (savedInput) {
+            setWorkflowInput(savedInput);
+            setIsDialogOpen(true);
           }
         })
         .catch((error) => {
@@ -90,7 +115,7 @@ export default function ProblemsPage() {
           });
         });
     }
-  }, [searchParams, toast]);
+  }, [searchParams, toast, isClient]);
 
   // 当前用户角色（模拟数据）
   const userRole: Role = "admin";
@@ -135,36 +160,22 @@ export default function ProblemsPage() {
     try {
       setIsLoading(true);
       // 检查是否有访问令牌
-      const accessToken = typeof window !== "undefined" ? localStorage.getItem("coze_access_token") : null;
+      const accessToken = localStorage.getItem("coze_access_token");
       
       if (!accessToken) {
         // 如果没有令牌，先进行授权
         // 保存当前的工作流输入参数
-        if (typeof window !== "undefined") {
-          localStorage.setItem("coze_workflow_input", workflowInput);
-        }
+        localStorage.setItem("coze_workflow_input", workflowInput);
         initiateCozeAuth(); // 在当前页面进行授权
         return;
       }
 
       const result = await runWorkflow({ input: workflowInput });
-      
-      if (result.success) {
-        toast({
-          title: "工作流执行成功",
-          description: result.data || "请查看执行结果",
-        });
-        setIsDialogOpen(false);
-        setWorkflowInput("");
-      } else {
-        throw new Error(result.message || "执行失败");
-      }
+      setWorkflowResult(result);
+      setIsResultDialogOpen(true);
+      setIsDialogOpen(false);
+      setWorkflowInput("");
     } catch (error) {
-      if (error instanceof Error && error.message === "Local storage is not available") {
-        // 处理服务端渲染的情况
-        return;
-      }
-      
       if (error instanceof Error && error.message === "No access token found") {
         // 如果是token无效，重新授权
         setIsDialogOpen(false);
@@ -182,6 +193,47 @@ export default function ProblemsPage() {
       setIsLoading(false);
     }
   };
+
+  // 解析工作流结果数据
+  const parsedQuestions = useMemo(() => {
+    if (!workflowResult?.data) return [];
+    
+    try {
+      // 首先解析外层 JSON
+      const parsedData = JSON.parse(workflowResult.data);
+      console.log(JSON.parse(workflowResult.data),'JSON.parse(workflowResult.data)')
+      // 然后解析 output 数组中的每个字符串
+      return parsedData.output.map((item: string) => {
+        try {
+          // 移除可能的转义字符
+          const cleanItem = item.replace(/\\/g, '');
+          return JSON.parse(cleanItem);
+        } catch (e) {
+          console.error('解析问题数据失败:', e);
+          return null;
+        }
+      }).filter(Boolean); // 过滤掉解析失败的项目
+    } catch (e) {
+      console.error('解析工作流结果失败:', e);
+      return [];
+    }
+  }, [workflowResult]);
+
+  // 如果还在服务端渲染，返回一个占位符
+  if (!isClient) {
+    return (
+      <div className="max-w-4xl mx-auto relative min-h-screen pb-20">
+        <div className="animate-pulse">
+          <div className="h-8 bg-gray-200 rounded w-1/4 mb-6"></div>
+          <div className="space-y-3">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="h-16 bg-gray-200 rounded"></div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto relative min-h-screen pb-20">
@@ -326,6 +378,75 @@ export default function ProblemsPage() {
           </Dialog>
         </div>
       )}
+
+      {/* 结果展示模态框 */}
+      <Dialog open={isResultDialogOpen} onOpenChange={setIsResultDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>工作流执行结果</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {workflowResult && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="font-medium">执行状态：</span>
+                    <span className={workflowResult.code === 0 ? "text-green-600" : "text-red-600"}>
+                      {workflowResult.msg}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-medium">执行成本：</span>
+                    <span>{workflowResult.cost}</span>
+                  </div>
+                  <div>
+                    <span className="font-medium">Token 消耗：</span>
+                    <span>{workflowResult.token}</span>
+                  </div>
+                  <div>
+                    <span className="font-medium">调试链接：</span>
+                    <a 
+                      href={workflowResult.debug_url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      查看详情
+                    </a>
+                  </div>
+                </div>
+
+                <div className="mt-6">
+                  <h3 className="font-medium mb-2">生成的问题列表：</h3>
+                  <div className="space-y-4">
+                    {parsedQuestions.map((question: Question, index: number) => (
+                      <Card key={index} className="p-4">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <h4 className="font-medium">{question.ques_name}</h4>
+                            <span className="text-sm text-muted-foreground">#{index + 1}</span>
+                          </div>
+                          <p className="text-sm text-muted-foreground">{question.ques_desc}</p>
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <span className="font-medium">输入：</span>
+                              <code className="bg-muted px-2 py-1 rounded">{question.ques_in}</code>
+                            </div>
+                            <div>
+                              <span className="font-medium">输出：</span>
+                              <code className="bg-muted px-2 py-1 rounded">{question.ques_out}</code>
+                            </div>
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 } 

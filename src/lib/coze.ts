@@ -8,20 +8,8 @@ interface WorkflowParams {
   bot_id?: string;
 }
 
-const getLocalStorage = () => {
-  if (typeof window !== "undefined") {
-    return window.localStorage;
-  }
-  return null;
-};
-
 export async function runWorkflow({ input }: WorkflowParams) {
-  const storage = getLocalStorage();
-  if (!storage) {
-    throw new Error("Local storage is not available");
-  }
-  
-  const accessToken = storage.getItem("coze_access_token");
+  const accessToken = localStorage.getItem("coze_access_token");
   
   if (!accessToken) {
     throw new Error("No access token found");
@@ -39,15 +27,12 @@ export async function runWorkflow({ input }: WorkflowParams) {
           input: input
         },
         workflow_id: process.env.NEXT_PUBLIC_COZE_WORKFLOW_ID,
-        bot_id: process.env.NEXT_PUBLIC_COZE_BOT_ID,
-        app_id: process.env.NEXT_PUBLIC_COZE_APP_ID
       }),
     });
 
     if (!response.ok) {
       throw new Error("Failed to run workflow");
     }
-
     return await response.json();
   } catch (error) {
     console.error("Error running workflow:", error);
@@ -56,18 +41,12 @@ export async function runWorkflow({ input }: WorkflowParams) {
 }
 
 export function initiateCozeAuth() {
-  const storage = getLocalStorage();
-  if (!storage) {
-    throw new Error("Local storage is not available");
-  }
-
   const CLIENT_ID = process.env.NEXT_PUBLIC_COZE_CLIENT_ID;
-  console.log(CLIENT_ID,'7umnjUPD1LnpifLDqgckHTTtOQwaDSdlePMsTb8naiPMWAgJ');
   const REDIRECT_URI = process.env.NEXT_PUBLIC_COZE_REDIRECT_URI;
   const STATE = generateRandomState();
   
   // 存储state用于后续验证
-  storage.setItem("coze_auth_state", STATE);
+  localStorage.setItem("coze_auth_state", STATE);
   
   const authUrl = new URL(COZE_AUTH_URL);
   authUrl.searchParams.append("client_id", CLIENT_ID!);
