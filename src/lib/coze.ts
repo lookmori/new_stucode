@@ -38,8 +38,9 @@ export async function runWorkflow({ input }: WorkflowParams) {
         parameters: {
           input: input
         },
-        workflow_id: "7480745543788445737",
-        bot_id: BOT_ID
+        workflow_id: process.env.NEXT_PUBLIC_COZE_WORKFLOW_ID,
+        bot_id: process.env.NEXT_PUBLIC_COZE_BOT_ID,
+        app_id: process.env.NEXT_PUBLIC_COZE_APP_ID
       }),
     });
 
@@ -61,6 +62,7 @@ export function initiateCozeAuth() {
   }
 
   const CLIENT_ID = process.env.NEXT_PUBLIC_COZE_CLIENT_ID;
+  console.log(CLIENT_ID,'7umnjUPD1LnpifLDqgckHTTtOQwaDSdlePMsTb8naiPMWAgJ');
   const REDIRECT_URI = process.env.NEXT_PUBLIC_COZE_REDIRECT_URI;
   const STATE = generateRandomState();
   
@@ -80,4 +82,32 @@ export function initiateCozeAuth() {
 
 function generateRandomState() {
   return Math.random().toString(36).substring(2, 15);
+}
+
+export async function getCozeToken(code: string) {
+  try {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_COZE_API_BASE}/api/permission/oauth2/token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_COZE_CLIENT_SECRET}`
+      },
+      body: JSON.stringify({
+        grant_type: 'authorization_code',
+        code: code,
+        redirect_uri: process.env.NEXT_PUBLIC_COZE_REDIRECT_URI,
+        client_id: process.env.NEXT_PUBLIC_COZE_CLIENT_ID
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('获取token失败');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('获取token时出错:', error);
+    throw error;
+  }
 } 

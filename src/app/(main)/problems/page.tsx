@@ -33,7 +33,7 @@ import {
 import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
-import { initiateCozeAuth, runWorkflow } from "@/lib/coze";
+import { initiateCozeAuth, runWorkflow, getCozeToken } from "@/lib/coze";
 import { useToast } from "@/components/ui/use-toast";
 
 // 模拟数据，实际项目中应该从API获取
@@ -66,14 +66,31 @@ export default function ProblemsPage() {
     const code = searchParams.get("code");
     if (code) {
       console.log("收到授权码:", code);
-      // 如果有保存的输入，恢复它
-      const savedInput = localStorage.getItem("coze_workflow_input");
-      if (savedInput) {
-        setWorkflowInput(savedInput);
-        setIsDialogOpen(true);
-      }
+      // 获取token
+      getCozeToken(code)
+        .then((tokenData) => {
+          console.log("获取到token:", tokenData);
+          // 保存token到localStorage
+          if (typeof window !== "undefined") {
+            localStorage.setItem("coze_access_token", tokenData.access_token);
+            // 如果有保存的输入，恢复它
+            const savedInput = localStorage.getItem("coze_workflow_input");
+            if (savedInput) {
+              setWorkflowInput(savedInput);
+              setIsDialogOpen(true);
+            }
+          }
+        })
+        .catch((error) => {
+          console.error("获取token失败:", error);
+          toast({
+            title: "授权失败",
+            description: "获取访问令牌失败，请重试",
+            variant: "destructive",
+          });
+        });
     }
-  }, [searchParams]);
+  }, [searchParams, toast]);
 
   // 当前用户角色（模拟数据）
   const userRole: Role = "admin";
