@@ -80,6 +80,7 @@ export default function ProblemsPage() {
   const [workflowResult, setWorkflowResult] = useState<WorkflowResult | null>(null);
   const [isResultDialogOpen, setIsResultDialogOpen] = useState(false);
   const [isClient, setIsClient] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   // 标记客户端渲染
   useEffect(() => {
@@ -203,21 +204,60 @@ export default function ProblemsPage() {
       const parsedData = JSON.parse(workflowResult.data);
       console.log(JSON.parse(workflowResult.data),'JSON.parse(workflowResult.data)')
       // 然后解析 output 数组中的每个字符串
-      return parsedData.output.map((item: string) => {
+      const questions = parsedData.output.map((item: string) => {
         try {
           // 移除可能的转义字符
           const cleanItem = item.replace(/\\/g, '');
+          console.log(cleanItem,'cleanItem')
           return JSON.parse(cleanItem);
         } catch (e) {
           console.error('解析问题数据失败:', e);
           return null;
         }
       }).filter(Boolean); // 过滤掉解析失败的项目
+
+      // 清除 localStorage 中的数据
+      localStorage.removeItem('coze_access_token');
+      localStorage.removeItem('coze_workflow_input');
+      localStorage.removeItem('coze_auth_state');
+
+      return questions;
     } catch (e) {
       console.error('解析工作流结果失败:', e);
+      // 即使解析失败也清除 localStorage 中的数据
+      localStorage.removeItem('coze_access_token');
+      localStorage.removeItem('coze_workflow_input');
+      localStorage.removeItem('coze_auth_state');
       return [];
     }
   }, [workflowResult]);
+
+  // 处理导入到数据库
+  const handleImport = async () => {
+    try {
+      setIsImporting(true);
+      console.log('准备导入的问题数据:', parsedQuestions);
+      
+      // TODO: 这里添加实际的数据库导入逻辑
+      
+      toast({
+        title: "导入成功",
+        description: `成功导入 ${parsedQuestions.length} 个问题`,
+      });
+      
+      // 导入成功后关闭模态框
+      setIsResultDialogOpen(false);
+    } catch (error) {
+      console.error('导入失败:', error);
+      toast({
+        title: "导入失败",
+        description: error instanceof Error ? error.message : "未知错误",
+        variant: "destructive",
+      });
+    } finally {
+      setIsImporting(false);
+    }
+  };
 
   // 如果还在服务端渲染，返回一个占位符
   if (!isClient) {
@@ -417,7 +457,26 @@ export default function ProblemsPage() {
                 </div>
 
                 <div className="mt-6">
-                  <h3 className="font-medium mb-2">生成的问题列表：</h3>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-medium">生成的问题列表：</h3>
+                    <Button 
+                      onClick={handleImport}
+                      disabled={isImporting || parsedQuestions.length === 0}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      {isImporting ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          导入中...
+                        </>
+                      ) : (
+                        <>导入到数据库</>
+                      )}
+                    </Button>
+                  </div>
                   <div className="space-y-4">
                     {parsedQuestions.map((question: Question, index: number) => (
                       <Card key={index} className="p-4">
