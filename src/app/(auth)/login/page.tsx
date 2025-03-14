@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from 'next/navigation';
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -24,6 +25,8 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { authService } from "@/lib/services/auth";
+import { useToast } from "@/components/ui/use-toast";
 
 const formSchema = z.object({
   email: z.string().email({
@@ -37,6 +40,8 @@ const formSchema = z.object({
 });
 
 export default function LoginPage() {
+  const router = useRouter();
+  const { toast } = useToast();
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -47,8 +52,38 @@ export default function LoginPage() {
     },
   });
 
-  function onSubmit(values: z.infer<typeof formSchema>) {
-    console.log(values);
+  async function onSubmit(values: z.infer<typeof formSchema>) {
+    try {
+      const response = await authService.login({
+        email: values.email,
+        password: values.password,
+        role_id: parseInt(values.role),
+      });
+
+      // 如果需要记住密码，可以将凭证保存到 localStorage
+      if (values.rememberMe) {
+        localStorage.setItem('email', values.email);
+      }
+
+      // 保存 token 到 cookie
+      document.cookie = `token=${response.data.token}; path=/; max-age=86400`; // 24小时过期
+      // 保存用户信息
+      localStorage.setItem('user', JSON.stringify(response.data.user));
+
+      toast({
+        title: "登录成功",
+        description: "正在跳转到问题列表...",
+      });
+
+      // 跳转到问题列表页面
+      router.push('/problems');
+    } catch (error) {
+      toast({
+        title: "登录失败",
+        description: error instanceof Error ? error.message : "未知错误",
+        variant: "destructive",
+      });
+    }
   }
 
   return (
