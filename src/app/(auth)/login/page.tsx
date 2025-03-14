@@ -68,7 +68,7 @@ export default function LoginPage() {
       // 保存 token 到 cookie
       document.cookie = `token=${response.data.token}; path=/; max-age=86400`; // 24小时过期
       // 保存用户信息
-      localStorage.setItem('user', JSON.stringify(response.data.user));
+      localStorage.setItem('user', JSON.stringify(response.data));
 
       toast({
         title: "登录成功",

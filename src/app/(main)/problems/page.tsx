@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Problem, ProblemStatus } from "@/types/problem";
+import { ProblemStatus } from "@/types/problem";
 import { ProblemStatusBadge } from "@/components/problems/problem-status-badge";
 import {
   Dialog,
@@ -35,20 +35,14 @@ import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { initiateCozeAuth, runWorkflow, getCozeToken } from "@/lib/coze";
 import { useToast } from "@/components/ui/use-toast";
+import { problemService, ProblemData } from "@/lib/services/problems";
 
-// 模拟数据，实际项目中应该从API获取
-const mockProblems: Problem[] = Array.from({ length: 50 }, (_, i) => ({
-  id: `problem-${i + 1}`,
-  title: `问题 ${i + 1}`,
-  status: ["CORRECT", "WRONG", "PENDING"][Math.floor(Math.random() * 3)] as ProblemStatus,
-  description: "",
-}));
-
+// 修改状态选项
 const statusOptions = [
   { value: "ALL", label: "全部状态" },
-  { value: "CORRECT", label: "已解答" },
-  { value: "WRONG", label: "答错" },
-  { value: "PENDING", label: "未完成" },
+  { value: "1", label: "已解答" },
+  { value: "0", label: "未完成" },
+  { value: "-1", label: "答错" },
 ] as const;
 
 // 用户角色类型
@@ -81,6 +75,57 @@ export default function ProblemsPage() {
   const [isResultDialogOpen, setIsResultDialogOpen] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [problems, setProblems] = useState<ProblemData[]>([]);
+  const [isLoadingProblems, setIsLoadingProblems] = useState(true);
+  const [userRole, setUserRole] = useState<Role | null>(null);
+
+  // 获取用户信息和问题列表
+  useEffect(() => {
+    if (!isClient) return;
+
+    const fetchUserAndProblems = async () => {
+      try {
+        setIsLoadingProblems(true);
+        // 从 localStorage 获取用户信息
+        const userStr = localStorage.getItem('user');
+        if (!userStr) {
+          throw new Error('未登录');
+        }
+        const user = JSON.parse(userStr);
+        
+        // 设置用户角色
+        const roleMap: Record<number, Role> = {
+          1: 'admin',
+          2: 'teacher',
+          3: 'student'
+        };
+        setUserRole(roleMap[user.role_id] || 'student');
+
+        // 获取问题列表
+        const result = await problemService.getProblems({
+          user_id: user.id,
+          role_id: user.role_id
+        });
+
+        if (result.code !== 200) {
+          throw new Error(result.message || '获取问题列表失败');
+        }
+
+        setProblems(result.data);
+      } catch (error) {
+        console.error('获取问题列表失败:', error);
+        toast({
+          title: "获取问题列表失败",
+          description: error instanceof Error ? error.message : "未知错误",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoadingProblems(false);
+      }
+    };
+
+    fetchUserAndProblems();
+  }, [isClient, toast]);
 
   // 标记客户端渲染
   useEffect(() => {
@@ -118,23 +163,20 @@ export default function ProblemsPage() {
     }
   }, [searchParams, toast, isClient]);
 
-  // 当前用户角色（模拟数据）
-  const userRole: Role = "admin";
-  
   // 检查是否为管理员
   const isAdmin = userRole === "admin";
 
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"ALL" | ProblemStatus>("ALL");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | string>("ALL");
   const pageSize = 10;
 
   // 应用搜索和筛选
-  const filteredProblems = mockProblems.filter((problem) => {
+  const filteredProblems = problems.filter((problem) => {
     const matchesSearch = problem.title
       .toLowerCase()
       .includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === "ALL" || problem.status === statusFilter;
+    const matchesStatus = statusFilter === "ALL" || problem.status?.toString() === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
@@ -238,7 +280,11 @@ export default function ProblemsPage() {
       setIsImporting(true);
       console.log('准备导入的问题数据:', parsedQuestions);
       
-      // TODO: 这里添加实际的数据库导入逻辑
+      const result = await problemService.importProblems(parsedQuestions);
+      
+      if (result.code !== 0) {
+        throw new Error(result.message || '导入失败');
+      }
       
       toast({
         title: "导入成功",
@@ -259,8 +305,8 @@ export default function ProblemsPage() {
     }
   };
 
-  // 如果还在服务端渲染，返回一个占位符
-  if (!isClient) {
+  // 如果还在服务端渲染或正在加载问题列表，返回加载状态
+  if (!isClient || isLoadingProblems) {
     return (
       <div className="max-w-4xl mx-auto relative min-h-screen pb-20">
         <div className="animate-pulse">
@@ -308,25 +354,27 @@ export default function ProblemsPage() {
       
       <div className="space-y-3">
         {currentProblems.map((problem) => (
-          <Card key={problem.id} className="overflow-hidden">
+          <Card key={problem.problem_id} className="overflow-hidden">
             <Link
-              href={`/problems/${problem.id}`}
+              href={`/problems/${problem.problem_id}?data=${encodeURIComponent(JSON.stringify(problem))}`}
               className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
             >
               <div className="flex items-center space-x-4">
                 <span className="text-muted-foreground font-mono">
-                  #{problem.id.split('-')[1].padStart(3, '0')}
+                  #{problem.problem_id.toString().padStart(3, '0')}
                 </span>
                 <span className="font-medium">{problem.title}</span>
               </div>
-              <ProblemStatusBadge status={problem.status} />
+              {problem.status !== undefined && (
+                <ProblemStatusBadge status={problem.status === 1 ? "CORRECT" : problem.status === -1 ? "WRONG" : "PENDING"} />
+              )}
             </Link>
           </Card>
         ))}
 
         {currentProblems.length === 0 && (
           <div className="text-center py-8 text-muted-foreground">
-            没有找到匹配的问题
+            {isLoadingProblems ? "加载中..." : "没有找到匹配的问题"}
           </div>
         )}
       </div>

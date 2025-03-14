@@ -15,7 +15,7 @@ export async function request<T>(endpoint: string, options: RequestOptions = {})
   const { params, headers, ...rest } = options;
   
   // 构建 URL 和查询参数
-  const url = new URL(`${API_BASE_URL}${endpoint}`);
+  const url = new URL(endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`);
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
       url.searchParams.append(key, value);
