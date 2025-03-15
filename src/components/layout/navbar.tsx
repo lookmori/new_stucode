@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { UserCircle } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast";
+import { authService } from "@/lib/services/auth";
 
 const navItems = [
   {
@@ -29,6 +31,31 @@ const navItems = [
 
 export function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { toast } = useToast();
+
+  const handleLogout = () => {
+    try {
+      // 调用退出登录方法
+      authService.logout();
+      
+      toast({
+        title: "退出成功",
+        description: "正在跳转到登录页面...",
+      });
+
+      // 强制刷新并跳转到登录页
+      router.refresh();
+      router.replace('/login');
+    } catch (error) {
+      console.error('退出登录失败:', error);
+      toast({
+        title: "退出失败",
+        description: "请稍后重试",
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <nav className="border-b">
@@ -56,7 +83,7 @@ export function Navbar() {
         </div>
 
         {/* 右侧个人中心 */}
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center space-x-4">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon">
@@ -69,10 +96,7 @@ export function Navbar() {
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-red-600 cursor-pointer"
-                onClick={() => {
-                  // TODO: 实现退出登录逻辑
-                  console.log("退出登录");
-                }}
+                onClick={handleLogout}
               >
                 退出登录
               </DropdownMenuItem>

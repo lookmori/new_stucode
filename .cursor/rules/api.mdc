@@ -1,0 +1,7 @@
+---
+description: api接口返回格式
+globs: 
+alwaysApply: false
+---
+
+所有/api开头的接口返回的格式都会有code（200 成功，其他：不成功）,data（数据信息）字段

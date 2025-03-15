@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -16,12 +18,11 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useToast } from "@/components/ui/use-toast";
+import { authService, CodeVerification } from "@/lib/services/auth";
 
 const formSchema = z
   .object({
-    username: z.string().min(2, {
-      message: "用户名至少需要2个字符",
-    }),
     email: z.string().email({
       message: "请输入有效的邮箱地址",
     }),
@@ -29,7 +30,7 @@ const formSchema = z
       message: "密码至少需要6个字符",
     }),
     confirmPassword: z.string(),
-    verificationCode: z.string().length(6, {
+    code: z.string().length(6, {
       message: "请输入6位验证码",
     }),
   })
@@ -39,22 +40,57 @@ const formSchema = z
   });
 
 export default function RegisterPage() {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [countdown, setCountdown] = useState(0);
+  const [verification, setVerification] = useState<CodeVerification | null>(null);
+  
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      username: "",
       email: "",
       password: "",
       confirmPassword: "",
-      verificationCode: "",
+      code: "",
     },
   });
 
-  function onSubmit(values: z.infer<typeof formSchema>) {
-    console.log(values);
+  async function onSubmit(values: z.infer<typeof formSchema>) {
+    try {
+      // 直接发送注册请求，让服务端验证验证码
+      console.log('正在提交注册信息:', {
+        email: values.email,
+        password: values.password,
+        role_id: 0,
+        code: values.code,
+      });
+
+      const userData = await authService.register({
+        email: values.email,
+        password: values.password,
+        role_id: 0, // 默认为学生角色
+        code: values.code,
+      });
+
+      console.log('注册成功:', userData);
+
+      toast({
+        title: "注册成功",
+        description: "请前往登录页面进行登录",
+      });
+      router.push('/login');
+    } catch (error) {
+      console.error('注册失败:', error);
+      toast({
+        title: "注册失败",
+        description: error instanceof Error ? error.message : "请稍后重试",
+        variant: "destructive",
+      });
+    }
   }
 
-  const handleSendCode = () => {
+  // 发送验证码
+  const handleSendCode = async () => {
     const email = form.getValues("email");
     if (!email) {
       form.setError("email", {
@@ -63,8 +99,51 @@ export default function RegisterPage() {
       });
       return;
     }
-    // TODO: 发送验证码
-    console.log("发送验证码到:", email);
+
+    // 验证邮箱格式
+    if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+      form.setError("email", {
+        type: "manual",
+        message: "请输入有效的邮箱地址",
+      });
+      return;
+    }
+
+    try {
+      console.log('正在发送验证码到:', email);
+      const result = await authService.sendVerificationCode(email);
+      console.log('验证码发送成功:', result);
+      
+      // 保存验证码信息
+      setVerification({
+        code: result.code,
+        expiresAt: Date.now() + result.expires_in * 1000,
+      });
+      
+      toast({
+        title: "发送成功",
+        description: "验证码已发送，请注意查收",
+      });
+
+      // 开始倒计时
+      setCountdown(60);
+      const timer = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } catch (error) {
+      console.error('验证码发送失败:', error);
+      toast({
+        title: "发送失败",
+        description: error instanceof Error ? error.message : "请稍后重试",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -83,24 +162,11 @@ export default function RegisterPage() {
       <div className="flex-[4] flex items-center justify-center p-8">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle className="text-2xl text-center">注册</CardTitle>
+            <CardTitle className="text-2xl text-center">学生注册</CardTitle>
           </CardHeader>
           <CardContent>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                <FormField
-                  control={form.control}
-                  name="username"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>用户名</FormLabel>
-                      <FormControl>
-                        <Input placeholder="请输入用户名" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
                 <FormField
                   control={form.control}
                   name="email"
@@ -110,6 +176,34 @@ export default function RegisterPage() {
                       <FormControl>
                         <Input placeholder="请输入邮箱" {...field} />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="code"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>验证码</FormLabel>
+                      <div className="flex space-x-4">
+                        <FormControl>
+                          <Input
+                            placeholder="请输入验证码"
+                            maxLength={6}
+                            {...field}
+                          />
+                        </FormControl>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-32 shrink-0"
+                          onClick={handleSendCode}
+                          disabled={countdown > 0}
+                        >
+                          {countdown > 0 ? `${countdown}秒后重试` : "发送验证码"}
+                        </Button>
+                      </div>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -144,33 +238,6 @@ export default function RegisterPage() {
                           {...field}
                         />
                       </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="verificationCode"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>验证码</FormLabel>
-                      <div className="flex space-x-4">
-                        <FormControl>
-                          <Input
-                            placeholder="请输入验证码"
-                            maxLength={6}
-                            {...field}
-                          />
-                        </FormControl>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="w-32 shrink-0"
-                          onClick={handleSendCode}
-                        >
-                          发送验证码
-                        </Button>
-                      </div>
                       <FormMessage />
                     </FormItem>
                   )}
