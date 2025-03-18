@@ -48,6 +48,15 @@ export async function request<T = any>(
       // 如果是401错误，清除token并重定向到登录页
       if (response.status === 401) {
         try {
+          // 检查是否有正在进行的Coze授权流程
+          const hasCozeWorkflow = localStorage.getItem("coze_workflow_input");
+          const hasCozeToken = localStorage.getItem("coze_access_token");
+          
+          if (hasCozeWorkflow || hasCozeToken) {
+            console.log("检测到Coze工作流程，跳过登录重定向");
+            throw new RequestError(401, '未登录或登录已过期，但Coze流程正在进行');
+          }
+          
           localStorage.removeItem('token');
           localStorage.removeItem('user');
         } catch (e) {

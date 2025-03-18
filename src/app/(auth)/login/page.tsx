@@ -25,9 +25,19 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { authService, LoginResponseData } from "@/lib/services/auth";
+import { authService, LoginResponseData, ResetPasswordData } from "@/lib/services/auth";
 import { useToast } from "@/components/ui/use-toast";
 import { RequestError } from "@/lib/request";
+import { useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 const formSchema = z.object({
   email: z.string().email({
@@ -41,9 +51,36 @@ const formSchema = z.object({
   submitting: z.boolean().default(false),
 });
 
+// 找回密码表单验证
+const resetPasswordSchema = z.object({
+  email: z.string().email({
+    message: "请输入有效的邮箱地址",
+  }),
+  code: z.string().length(6, {
+    message: "验证码必须是6位数字",
+  }),
+  newPassword: z.string().min(6, {
+    message: "密码至少需要6个字符",
+  }),
+  confirmPassword: z.string().min(6),
+}).refine(data => data.newPassword === data.confirmPassword, {
+  message: "两次输入的密码不一致",
+  path: ["confirmPassword"],
+});
+
 export default function LoginPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isSendingCode, setIsSendingCode] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+  
+  // 找回密码表单状态
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -51,6 +88,18 @@ export default function LoginPage() {
       password: "",
       role: "0",
       rememberMe: false,
+      submitting: false,
+    },
+  });
+
+  // 重置密码表单
+  const resetForm = useForm<z.infer<typeof resetPasswordSchema>>({
+    resolver: zodResolver(resetPasswordSchema),
+    defaultValues: {
+      email: "",
+      code: "",
+      newPassword: "",
+      confirmPassword: "",
     },
   });
 
@@ -95,6 +144,7 @@ export default function LoginPage() {
         
         // 保存用户信息
         localStorage.setItem('user', JSON.stringify({
+          user_id: userData.user_id,
           username: userData.username,
           email: userData.email,
           role_id: userData.role_id
@@ -159,6 +209,130 @@ export default function LoginPage() {
       form.setValue('submitting', false);
     }
   }
+
+  // 发送验证码
+  const sendVerificationCode = async () => {
+    try {
+      // 设置表单值
+      resetForm.setValue('email', resetEmail);
+      
+      // 验证邮箱
+      const valid = await resetForm.trigger('email');
+      if (!valid) return;
+
+      setIsSendingCode(true);
+
+      const response = await authService.sendVerificationCode(resetEmail);
+      
+      if (response.code === 200) {
+        toast({
+          title: "发送成功",
+          description: "验证码已发送到您的邮箱，请查收",
+          variant: "default",
+          className: "bg-green-100 border-green-400 text-black",
+        });
+        
+        // 设置倒计时
+        setCountdown(60);
+        const timer = setInterval(() => {
+          setCountdown((prev) => {
+            if (prev <= 1) {
+              clearInterval(timer);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+      } else {
+        toast({
+          title: "发送失败",
+          description: response.message || "验证码发送失败，请稍后重试",
+          variant: "default",
+          className: "bg-red-100 border-red-400 text-black",
+        });
+      }
+    } catch (error: any) {
+      console.error('发送验证码失败:', error);
+      toast({
+        title: "发送失败",
+        description: error instanceof Error ? error.message : "验证码发送失败，请稍后重试",
+        variant: "default",
+        className: "bg-red-100 border-red-400 text-black",
+      });
+    } finally {
+      setIsSendingCode(false);
+    }
+  };
+
+  // 重置密码
+  const handleResetPassword = async () => {
+    try {
+      // 设置表单值
+      resetForm.setValue('email', resetEmail);
+      resetForm.setValue('code', resetCode);
+      resetForm.setValue('newPassword', resetPassword);
+      resetForm.setValue('confirmPassword', resetConfirmPassword);
+      
+      // 验证表单
+      const valid = await resetForm.trigger();
+      if (!valid) return;
+      
+      // 调用重置密码API
+      const response = await authService.resetPassword({
+        email: resetEmail,
+        code: resetCode,
+        newPassword: resetPassword,
+      });
+      
+      if (response.code === 200) {
+        toast({
+          title: "密码重置成功",
+          description: "请使用新密码登录",
+          variant: "default",
+          className: "bg-green-100 border-green-400 text-black",
+        });
+        
+        // 关闭对话框，重置表单
+        setIsDialogOpen(false);
+        resetForm.reset();
+        setResetEmail("");
+        setResetCode("");
+        setResetPassword("");
+        setResetConfirmPassword("");
+        
+        // 自动填充邮箱
+        form.setValue('email', resetEmail);
+      } else {
+        toast({
+          title: "重置失败",
+          description: response.message || "密码重置失败，请稍后重试",
+          variant: "default",
+          className: "bg-red-100 border-red-400 text-black",
+        });
+      }
+    } catch (error: any) {
+      console.error('重置密码失败:', error);
+      toast({
+        title: "重置失败",
+        description: error instanceof Error ? error.message : "密码重置失败，请稍后重试",
+        variant: "default",
+        className: "bg-red-100 border-red-400 text-black",
+      });
+    }
+  };
+
+  // 对话框关闭时重置状态
+  const handleDialogOpenChange = (open: boolean) => {
+    setIsDialogOpen(open);
+    if (!open) {
+      resetForm.reset();
+      setResetEmail("");
+      setResetCode("");
+      setResetPassword("");
+      setResetConfirmPassword("");
+      setCountdown(0);
+    }
+  };
 
   return (
     <div className="min-h-screen flex">
@@ -229,21 +403,101 @@ export default function LoginPage() {
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="rememberMe"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-center space-x-2 space-y-0">
-                      <FormControl>
-                        <Checkbox
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                      <FormLabel className="text-sm font-normal">记住密码</FormLabel>
-                    </FormItem>
-                  )}
-                />
+                <div className="flex justify-between items-center">
+                  <FormField
+                    control={form.control}
+                    name="rememberMe"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center space-x-2 space-y-0">
+                        <FormControl>
+                          <Checkbox
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                        <FormLabel className="text-sm font-normal">记住密码</FormLabel>
+                      </FormItem>
+                    )}
+                  />
+                  <Dialog open={isDialogOpen} onOpenChange={handleDialogOpenChange}>
+                    <DialogTrigger asChild>
+                      <Button variant="link" className="text-sm p-0">
+                        忘记密码？
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                      <DialogHeader>
+                        <DialogTitle>找回密码</DialogTitle>
+                        <DialogDescription>
+                          请填写以下信息重置您的密码
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                          <FormLabel>邮箱</FormLabel>
+                          <div className="flex space-x-2">
+                            <Input 
+                              placeholder="请输入邮箱" 
+                              value={resetEmail}
+                              onChange={(e) => setResetEmail(e.target.value)}
+                            />
+                            <Button 
+                              type="button" 
+                              onClick={sendVerificationCode}
+                              disabled={isSendingCode || countdown > 0}
+                            >
+                              {isSendingCode ? '发送中...' : countdown > 0 ? `${countdown}秒后重发` : '发送验证码'}
+                            </Button>
+                          </div>
+                          {resetForm.formState.errors.email && (
+                            <p className="text-sm text-red-500">{resetForm.formState.errors.email.message}</p>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <FormLabel>验证码</FormLabel>
+                          <Input 
+                            placeholder="请输入6位验证码" 
+                            value={resetCode}
+                            onChange={(e) => setResetCode(e.target.value)}
+                            maxLength={6}
+                          />
+                          {resetForm.formState.errors.code && (
+                            <p className="text-sm text-red-500">{resetForm.formState.errors.code.message}</p>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <FormLabel>新密码</FormLabel>
+                          <Input 
+                            type="password" 
+                            placeholder="请输入新密码" 
+                            value={resetPassword}
+                            onChange={(e) => setResetPassword(e.target.value)}
+                          />
+                          {resetForm.formState.errors.newPassword && (
+                            <p className="text-sm text-red-500">{resetForm.formState.errors.newPassword.message}</p>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <FormLabel>确认密码</FormLabel>
+                          <Input 
+                            type="password" 
+                            placeholder="请再次输入新密码" 
+                            value={resetConfirmPassword}
+                            onChange={(e) => setResetConfirmPassword(e.target.value)}
+                          />
+                          {resetForm.formState.errors.confirmPassword && (
+                            <p className="text-sm text-red-500">{resetForm.formState.errors.confirmPassword.message}</p>
+                          )}
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button type="button" onClick={handleResetPassword}>
+                          重置密码
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </div>
                 <Button type="submit" className="w-full" disabled={form.getValues('submitting')}>
                   登录
                 </Button>

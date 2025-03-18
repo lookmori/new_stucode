@@ -16,6 +16,11 @@ export async function runWorkflow({ input }: WorkflowParams) {
   }
 
   try {
+    console.log("发送工作流请求，参数:", {
+      input,
+      workflow_id: process.env.NEXT_PUBLIC_COZE_WORKFLOW_ID,
+    });
+    
     const response = await fetch("https://api.coze.cn/v1/workflow/run", {
       method: "POST",
       headers: {
@@ -31,9 +36,53 @@ export async function runWorkflow({ input }: WorkflowParams) {
     });
 
     if (!response.ok) {
-      throw new Error("Failed to run workflow");
+      const errorText = await response.text();
+      console.error("工作流执行失败:", {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+      });
+      throw new Error(`Failed to run workflow: ${response.status} ${response.statusText}`);
     }
-    return await response.json();
+    
+    const responseText = await response.text();
+    console.log("API原始响应文本:", responseText);
+    
+    let result;
+    try {
+      result = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error("解析API响应JSON失败:", parseError);
+      throw new Error("Invalid JSON response from API");
+    }
+    
+    console.log("工作流执行成功，解析后的响应:", result);
+    console.log("响应数据类型:", typeof result);
+    console.log("响应字段:", Object.keys(result));
+    
+    if (result.data) {
+      console.log("data字段类型:", typeof result.data);
+      console.log("data字段内容:", result.data);
+    }
+    
+    // 验证响应格式
+    if (!result || typeof result !== 'object') {
+      throw new Error("Invalid workflow response format");
+    }
+    
+    // 确保data字段是字符串
+    if (result.data && typeof result.data !== 'string') {
+      console.log("将data字段转换为字符串");
+      try {
+        result.data = JSON.stringify(result.data);
+        console.log("转换后的data字段:", result.data);
+      } catch (stringifyError) {
+        console.error("将data字段转换为字符串失败:", stringifyError);
+        throw new Error("Failed to stringify data field");
+      }
+    }
+    
+    return result;
   } catch (error) {
     console.error("Error running workflow:", error);
     throw error;
@@ -47,6 +96,9 @@ export function initiateCozeAuth() {
   
   // 存储state用于后续验证
   localStorage.setItem("coze_auth_state", STATE);
+  
+  // 保存当前页面的URL，确保能回到问题列表页面
+  localStorage.setItem("coze_return_path", window.location.pathname);
   
   const authUrl = new URL(COZE_AUTH_URL);
   authUrl.searchParams.append("client_id", CLIENT_ID!);

@@ -1,0 +1,7 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+- ui库使用shadcn/ui， shadcn
+- 所有toast 组件的error都将字的颜色设为黑色

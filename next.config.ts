@@ -21,7 +21,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://127.0.0.1:7001/api/:path*',
+        destination: process.env.NEXT_PUBLIC_API_BASE_URL + '/:path*' || 'http://127.0.0.1:7001/api/:path*',
       },
     ];
   },
@@ -29,6 +29,16 @@ const nextConfig: NextConfig = {
   // 允许图片域名
   images: {
     domains: ['localhost'],
+  },
+
+  // 环境变量配置
+  env: {
+    NEXT_PUBLIC_COZE_API_BASE: process.env.NEXT_PUBLIC_COZE_API_BASE,
+    NEXT_PUBLIC_COZE_CLIENT_ID: process.env.NEXT_PUBLIC_COZE_CLIENT_ID,
+    NEXT_PUBLIC_COZE_CLIENT_SECRET: process.env.NEXT_PUBLIC_COZE_CLIENT_SECRET,
+    NEXT_PUBLIC_COZE_REDIRECT_URI: process.env.NEXT_PUBLIC_COZE_REDIRECT_URI,
+    NEXT_PUBLIC_COZE_WORKFLOW_ID: process.env.NEXT_PUBLIC_COZE_WORKFLOW_ID,
+    NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL,
   },
 };
 

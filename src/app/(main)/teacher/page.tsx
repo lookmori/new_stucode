@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Table,
   TableBody,
@@ -29,8 +29,8 @@ import { Input } from "@/components/ui/input";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { toast } from "sonner";
-import { Search, Plus } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast";
+import { Search, Plus, Trash2 } from "lucide-react";
 import {
   Pagination,
   PaginationContent,
@@ -40,6 +40,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
+import { userService, UserInfo } from "@/lib/services/user";
 
 // 模拟教师数据
 const mockTeachers = [
@@ -81,15 +82,24 @@ const addFormSchema = z.object({
 type Role = "admin" | "teacher" | "student";
 
 export default function TeacherPage() {
-  // 当前用户角色（模拟数据）
-  const userRole: Role = "admin";
-  
+  // 修改状态定义
+  const [teachers, setTeachers] = useState<{id: string; username: string; email: string}[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [userRole, setUserRole] = useState<Role | null>(null);
+  const [userId, setUserId] = useState<number | null>(null);
+  const [roleId, setRoleId] = useState<number | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [selectedTeacher, setSelectedTeacher] = useState<typeof mockTeachers[0] | null>(null);
+  const [selectedTeacher, setSelectedTeacher] = useState<{id: string; username: string; email: string} | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const pageSize = 10;
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [teacherToDelete, setTeacherToDelete] = useState<{id: string; username: string; email: string} | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  
+  // 使用shadcn的toast
+  const { toast } = useToast();
 
   const editForm = useForm<z.infer<typeof editFormSchema>>({
     resolver: zodResolver(editFormSchema),
@@ -109,7 +119,91 @@ export default function TeacherPage() {
     },
   });
 
-  const handleEditClick = (teacher: typeof mockTeachers[0]) => {
+  // 获取用户角色和教师列表
+  useEffect(() => {
+    const fetchUserRoleAndTeachers = async () => {
+      try {
+        // 从 localStorage 获取用户信息
+        const userStr = localStorage.getItem('user');
+        if (!userStr) {
+          throw new Error('未登录');
+        }
+        
+        console.log("原始用户信息字符串:", userStr);
+        const user = JSON.parse(userStr);
+        console.log("解析后的用户对象:", user);
+        
+        // 设置用户ID和角色ID - 尝试不同的属性名
+        let currentUserId;
+        if (user.user_id !== undefined) {
+          currentUserId = user.user_id;
+        } else if (user.id !== undefined) {
+          currentUserId = user.id;
+        } else if (user.userId !== undefined) {
+          currentUserId = user.userId;
+        } else {
+          // 如果找不到任何ID属性，尝试记录完整的对象
+          console.error("无法获取用户ID，用户对象:", JSON.stringify(user));
+          throw new Error('无法获取用户ID');
+        }
+        
+        const currentRoleId = user.role_id || user.roleId;
+        console.log("提取的用户信息:", { currentUserId, currentRoleId });
+        
+        setUserId(currentUserId);
+        setRoleId(currentRoleId);
+        
+        // 设置用户角色
+        const roleMap: Record<number, Role> = {
+          2: 'admin',
+          1: 'teacher',
+          0: 'student'
+        };
+        setUserRole(roleMap[currentRoleId] || 'student');
+        
+        // 调用API获取教师列表
+        const result = await userService.getUserInfo({
+          user_id: currentUserId,
+          role_id: currentRoleId,
+          find_id: 1 // 查询教师列表
+        });
+        
+        console.log("获取教师列表响应:", result);
+        
+        if (result.code === 200 && result.data) {
+          // 转换数据格式
+          const teacherList = result.data.map(teacher => ({
+            id: teacher.userId.toString(),
+            username: teacher.username,
+            email: teacher.email
+          }));
+          
+          setTeachers(teacherList);
+        } else {
+          throw new Error(result.message || '获取教师列表失败');
+        }
+      } catch (error) {
+        console.error('获取数据失败:', error);
+        toast({
+          variant: "destructive",
+          title: "错误",
+          description: error instanceof Error ? error.message : "获取数据失败",
+          className: "text-black"
+        });
+        
+        // 如果API调用失败，使用模拟数据（仅用于开发）
+        if (process.env.NODE_ENV !== 'production') {
+          setTeachers(mockTeachers);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchUserRoleAndTeachers();
+  }, []);
+
+  const handleEditClick = (teacher: {id: string; username: string; email: string}) => {
     setSelectedTeacher(teacher);
     editForm.reset({
       username: teacher.username,
@@ -119,32 +213,223 @@ export default function TeacherPage() {
     setIsEditDialogOpen(true);
   };
 
-  const onEditSubmit = (values: z.infer<typeof editFormSchema>) => {
-    // 这里应该调用API更新教师信息
-    console.log("更新教师信息:", { id: selectedTeacher?.id, ...values });
+  const onEditSubmit = async (values: z.infer<typeof editFormSchema>) => {
+    if (!selectedTeacher) return;
     
-    // 模拟成功响应
-    toast.success("教师信息已更新");
-    setIsEditDialogOpen(false);
+    try {
+      // 获取当前用户信息
+      const userStr = localStorage.getItem('user');
+      if (!userStr) {
+        toast({
+          variant: "destructive",
+          title: "错误",
+          description: "未登录",
+          className: "text-black"
+        });
+        return;
+      }
+      
+      const user = JSON.parse(userStr);
+      const operatorId = user.user_id || user.id;
+      const roleId = user.role_id;
+      
+      // 检查是否为管理员
+      if (roleId !== 2) {
+        toast({
+          variant: "destructive",
+          title: "错误",
+          description: "权限不足，只有管理员可以修改教师信息",
+          className: "text-black"
+        });
+        return;
+      }
+      
+      // 检查是否至少提供了一项要修改的信息
+      if (!values.username && !values.password) {
+        toast({
+          variant: "destructive",
+          title: "错误",
+          description: "请至少提供一项要修改的信息（用户名或密码）",
+          className: "text-black"
+        });
+        return;
+      }
+      
+      // 准备请求参数
+      const params: any = {
+        operator_id: operatorId,
+        role_id: roleId,
+        user_id: parseInt(selectedTeacher.id)
+      };
+      
+      // 只添加有值的字段
+      if (values.username) {
+        params.username = values.username;
+      }
+      
+      if (values.password) {
+        params.password = values.password;
+      }
+      
+      // 调用API修改用户信息
+      const result = await userService.updateUser(params);
+      
+      console.log("修改教师信息响应:", result);
+      
+      if (result.code === 200) {
+        toast({
+          variant: "default",
+          title: "成功",
+          description: result.message || "教师信息已更新"
+        });
+        
+        // 更新本地数据
+        if (values.username) {
+          // 更新teachers状态
+          setTeachers(prev => 
+            prev.map(t => 
+              t.id === selectedTeacher.id 
+                ? { ...t, username: values.username } 
+                : t
+            )
+          );
+        }
+        
+        setIsEditDialogOpen(false);
+      } else {
+        toast({
+          variant: "destructive",
+          title: "错误",
+          description: result.message ?? "修改教师信息失败",
+          className: "text-black"
+        });
+      }
+    } catch (error) {
+      console.error('修改教师信息失败:', error);
+      toast({
+        variant: "destructive",
+        title: "错误",
+        description: error instanceof Error ? error.message : "修改失败",
+        className: "text-black"
+      });
+    }
   };
 
-  const onAddSubmit = (values: z.infer<typeof addFormSchema>) => {
-    // 这里应该调用API添加教师
-    console.log("添加教师:", values);
-    
-    // 模拟成功响应
-    toast.success("教师添加成功");
-    setIsAddDialogOpen(false);
-    addForm.reset();
+  const onAddSubmit = async (values: z.infer<typeof addFormSchema>) => {
+    try {
+      // 获取当前用户角色ID
+      const userStr = localStorage.getItem('user');
+      if (!userStr) {
+        toast({
+          variant: "destructive",
+          title: "错误",
+          description: "未登录",
+          className: "text-black"
+        });
+        return;
+      }
+      
+      const user = JSON.parse(userStr);
+      const roleId = user.role_id;
+      
+      // 检查是否为管理员
+      if (roleId !== 2) {
+        toast({
+          variant: "destructive",
+          title: "错误",
+          description: "权限不足，只有管理员可以添加教师",
+          className: "text-black"
+        });
+        return;
+      }
+      
+      // 调用API添加教师
+      const result = await userService.addTeacher({
+        username: values.username,
+        email: values.email,
+        password: values.password,
+        role_id: roleId
+      });
+      
+      console.log("添加教师响应:", result);
+      console.log("服务器返回的消息:", result.message);
+      
+      if (result.code === 200 && result.data) {
+        const successMsg = result.message || "教师添加成功";
+        console.log("显示的成功消息:", successMsg);
+        toast({
+          variant: "default",
+          title: "成功",
+          description: successMsg
+        });
+        
+        // 添加到teachers状态
+        setTeachers(prev => {
+          const newTeachers = [...prev, {
+            id: result.data?.user_id?.toString() || "0",
+            username: result.data?.username || "",
+            email: result.data?.email || ""
+          }];
+          console.log("添加教师后的教师列表:", newTeachers);
+          return newTeachers;
+        });
+        
+        setIsAddDialogOpen(false);
+        addForm.reset();
+      } else {
+        // 统一处理所有错误情况，直接使用服务器返回消息
+        console.log("添加教师失败:", result.code, result.message);
+        
+        // 确保message不为空，并添加明显的标识
+        const errorMsg = result.message ? `添加失败：${result.message}` : "添加教师失败，请稍后重试";
+        console.log("将显示错误:", errorMsg);
+        
+        // 先显示错误消息
+        toast({
+          variant: "destructive",
+          title: "错误",
+          description: errorMsg,
+          className: "text-black"
+        });
+        
+        // 使用setTimeout延迟关闭对话框
+        setTimeout(() => {
+          setIsAddDialogOpen(false);
+        }, 500);
+        
+        return; // 提前返回，不要立即关闭对话框
+      }
+    } catch (error) {
+      console.error('添加教师失败:', error);
+      
+      // 显示错误提示
+      toast({
+        variant: "destructive",
+        title: "错误",
+        description: error instanceof Error ? error.message : "添加失败，请稍后重试",
+        className: "text-black"
+      });
+      
+      // 延迟关闭对话框
+      setTimeout(() => {
+        setIsAddDialogOpen(false);
+      }, 500);
+    }
   };
 
   // 检查是否有编辑权限（只有管理员可以编辑）
   const hasEditPermission = userRole === "admin";
 
   // 根据搜索条件筛选教师
-  const filteredTeachers = mockTeachers.filter(teacher => 
-    teacher.username.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredTeachers = teachers.filter(teacher => {
+    if (!searchQuery.trim()) return true;
+    
+    const query = searchQuery.toLowerCase().trim();
+    const username = teacher.username?.toLowerCase() || "";
+    const email = teacher.email?.toLowerCase() || "";
+    
+    return username.includes(query) || email.includes(query);
+  });
 
   // 计算总页数
   const totalPages = Math.ceil(filteredTeachers.length / pageSize);
@@ -191,6 +476,102 @@ export default function TeacherPage() {
     return links;
   };
 
+  // 处理删除点击
+  const handleDeleteClick = (teacher: {id: string; username: string; email: string}) => {
+    setTeacherToDelete(teacher);
+    setIsDeleteConfirmOpen(true);
+  };
+
+  // 执行删除操作
+  const handleDeleteConfirm = async () => {
+    if (!teacherToDelete) return;
+    
+    try {
+      setIsDeleting(true);
+      
+      // 获取当前用户角色ID
+      const userStr = localStorage.getItem('user');
+      if (!userStr) {
+        toast({
+          variant: "destructive",
+          title: "错误",
+          description: "未登录",
+          className: "text-black"
+        });
+        return;
+      }
+      
+      const user = JSON.parse(userStr);
+      const roleId = user.role_id;
+      
+      // 检查是否为管理员
+      if (roleId !== 2) {
+        toast({
+          variant: "destructive",
+          title: "错误",
+          description: "权限不足，只有管理员可以删除用户",
+          className: "text-black"
+        });
+        return;
+      }
+      
+      // 调用API删除用户
+      const result = await userService.deleteUser({
+        user_id: parseInt(teacherToDelete.id),
+        role_id: roleId
+      });
+      
+      console.log("删除用户响应:", result);
+      
+      if (result.code === 200) {
+        toast({
+          variant: "default",
+          title: "成功",
+          description: result.message || "教师删除成功"
+        });
+        
+        // 更新teachers状态，移除已删除的教师
+        setTeachers(prev => prev.filter(t => t.id !== teacherToDelete.id));
+        
+        setIsDeleteConfirmOpen(false);
+      } else {
+        toast({
+          variant: "destructive",
+          title: "错误",
+          description: result.message ?? "删除教师失败",
+          className: "text-black"
+        });
+      }
+    } catch (error) {
+      console.error('删除教师失败:', error);
+      toast({
+        variant: "destructive",
+        title: "错误",
+        description: error instanceof Error ? error.message : "删除失败",
+        className: "text-black"
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // 添加加载状态显示
+  if (isLoading) {
+    return (
+      <div className="container mx-auto py-6">
+        <h1 className="text-2xl font-bold mb-6">教师信息管理</h1>
+        <div className="animate-pulse">
+          <div className="h-10 bg-gray-200 rounded w-full md:w-80 mb-6"></div>
+          <div className="space-y-3">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="h-16 bg-gray-200 rounded"></div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto py-6">
       <h1 className="text-2xl font-bold mb-6">教师信息管理</h1>
@@ -236,13 +617,21 @@ export default function TeacherPage() {
                   <TableCell className="font-medium">{teacher.username}</TableCell>
                   <TableCell>{teacher.email}</TableCell>
                   {hasEditPermission && (
-                    <TableCell className="text-right">
+                    <TableCell className="text-right space-x-2">
                       <Button 
                         variant="outline" 
                         size="sm"
                         onClick={() => handleEditClick(teacher)}
                       >
                         修改信息
+                      </Button>
+                      <Button 
+                        variant="destructive" 
+                        size="sm"
+                        onClick={() => handleDeleteClick(teacher)}
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        删除
                       </Button>
                     </TableCell>
                   )}
@@ -391,6 +780,35 @@ export default function TeacherPage() {
               </DialogFooter>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* 删除确认对话框 */}
+      <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>确认删除</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p>您确定要删除教师 <span className="font-bold">{teacherToDelete?.username}</span> 吗？</p>
+            <p className="text-sm text-muted-foreground mt-2">此操作将删除该用户的所有相关数据，且无法恢复。</p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsDeleteConfirmOpen(false)}
+              disabled={isDeleting}
+            >
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteConfirm}
+              disabled={isDeleting}
+            >
+              {isDeleting ? "删除中..." : "确认删除"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

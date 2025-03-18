@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Pagination,
@@ -78,6 +79,9 @@ export default function ProblemsPage() {
   const [problems, setProblems] = useState<ProblemData[]>([]);
   const [isLoadingProblems, setIsLoadingProblems] = useState(true);
   const [userRole, setUserRole] = useState<Role | null>(null);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [problemToDelete, setProblemToDelete] = useState<ProblemData | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // 获取用户信息和问题列表
   useEffect(() => {
@@ -89,21 +93,41 @@ export default function ProblemsPage() {
         // 从 localStorage 获取用户信息
         const userStr = localStorage.getItem('user');
         if (!userStr) {
+          // 检查是否有正在进行的Coze授权流程
+          const hasCozeWorkflow = localStorage.getItem("coze_workflow_input");
+          const hasCozeToken = localStorage.getItem("coze_access_token");
+          
+          if (hasCozeWorkflow || hasCozeToken) {
+            console.log("检测到Coze工作流程，跳过登录检查");
+            // 使用默认角色以避免错误
+            setUserRole("admin");
+            setProblems([]);
+            setIsLoadingProblems(false);
+            return;
+          }
+          
           throw new Error('未登录');
         }
         const user = JSON.parse(userStr);
         
+        // 添加调试信息
+        console.log('用户信息:', user);
+        
         // 设置用户角色
         const roleMap: Record<number, Role> = {
-          1: 'admin',
-          2: 'teacher',
-          3: 'student'
+          2: 'admin',
+          1: 'teacher',
+          0: 'student'
         };
         setUserRole(roleMap[user.role_id] || 'student');
+        
+        // 添加调试信息
+        console.log('用户角色ID:', user.role_id);
+        console.log('映射后的角色:', roleMap[user.role_id] || 'student');
 
         // 获取问题列表
         const result = await problemService.getProblems({
-          user_id: user.id,
+          user_id: user.user_id || user.id,
           role_id: user.role_id
         });
 
@@ -111,7 +135,7 @@ export default function ProblemsPage() {
           throw new Error(result.message || '获取问题列表失败');
         }
 
-        setProblems(result.data);
+        setProblems(result.data || []);
       } catch (error) {
         console.error('获取问题列表失败:', error);
         toast({
@@ -139,17 +163,38 @@ export default function ProblemsPage() {
     const code = searchParams.get("code");
     if (code) {
       console.log("收到授权码:", code);
+      
       // 获取token
       getCozeToken(code)
         .then((tokenData) => {
           console.log("获取到token:", tokenData);
+          
           // 保存token到localStorage
           localStorage.setItem("coze_access_token", tokenData.access_token);
-          // 如果有保存的输入，恢复它
+          
+          // 如果有保存的输入，恢复它并自动打开对话框
           const savedInput = localStorage.getItem("coze_workflow_input");
+          console.log("恢复保存的输入:", savedInput);
+          
           if (savedInput) {
             setWorkflowInput(savedInput);
-            setIsDialogOpen(true);
+            
+            // 延迟打开对话框，确保组件已完全加载
+            setTimeout(() => {
+              setIsDialogOpen(true);
+              console.log("打开对话框");
+            }, 500);
+          }
+          
+          // 清除URL中的授权码，但不刷新页面
+          const newUrl = window.location.pathname;
+          window.history.replaceState({}, document.title, newUrl);
+          
+          // 检查是否有保存的返回路径，如果有则立即执行工作流
+          if (savedInput) {
+            setTimeout(() => {
+              handleRunWorkflow();
+            }, 1000);
           }
         })
         .catch((error) => {
@@ -165,6 +210,14 @@ export default function ProblemsPage() {
 
   // 检查是否为管理员
   const isAdmin = userRole === "admin";
+  
+  // 添加调试信息
+  useEffect(() => {
+    if (isClient && userRole) {
+      console.log('当前用户角色:', userRole);
+      console.log('是否为管理员:', isAdmin);
+    }
+  }, [isClient, userRole, isAdmin]);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
@@ -205,24 +258,41 @@ export default function ProblemsPage() {
       // 检查是否有访问令牌
       const accessToken = localStorage.getItem("coze_access_token");
       
+      // 读取已保存的输入（如果存在）
+      const savedInput = localStorage.getItem("coze_workflow_input") || workflowInput;
+      const currentInput = savedInput || workflowInput;
+      
       if (!accessToken) {
         // 如果没有令牌，先进行授权
         // 保存当前的工作流输入参数
-        localStorage.setItem("coze_workflow_input", workflowInput);
-        initiateCozeAuth(); // 在当前页面进行授权
+        localStorage.setItem("coze_workflow_input", currentInput);
+        console.log("保存工作流输入并开始授权:", currentInput);
+        
+        // 在当前页面进行授权
+        initiateCozeAuth();
         return;
       }
 
-      const result = await runWorkflow({ input: workflowInput });
+      console.log("开始执行工作流，输入:", currentInput);
+      const result = await runWorkflow({ input: currentInput });
+      console.log("工作流执行结果:", result);
+      
       setWorkflowResult(result);
       setIsResultDialogOpen(true);
       setIsDialogOpen(false);
       setWorkflowInput("");
+      
+      // 清除保存的输入
+      localStorage.removeItem("coze_workflow_input");
     } catch (error) {
+      console.error("工作流执行错误:", error);
+      
       if (error instanceof Error && error.message === "No access token found") {
         // 如果是token无效，重新授权
+        console.log("Token无效，重新授权");
+        const currentInput = localStorage.getItem("coze_workflow_input") || workflowInput;
+        localStorage.setItem("coze_workflow_input", currentInput);
         setIsDialogOpen(false);
-        setWorkflowInput("");
         initiateCozeAuth();
         return;
       }
@@ -239,25 +309,68 @@ export default function ProblemsPage() {
 
   // 解析工作流结果数据
   const parsedQuestions = useMemo(() => {
-    if (!workflowResult?.data) return [];
+    if (!workflowResult?.data) {
+      console.log('没有工作流结果数据');
+      return [];
+    }
     
     try {
+      console.log('原始工作流数据:', workflowResult.data);
+      console.log('数据类型:', typeof workflowResult.data);
+      
       // 首先解析外层 JSON
-      const parsedData = JSON.parse(workflowResult.data);
-      console.log(JSON.parse(workflowResult.data),'JSON.parse(workflowResult.data)')
-      // 然后解析 output 数组中的每个字符串
-      const questions = parsedData.output.map((item: string) => {
+      let parsedData;
+      if (typeof workflowResult.data === 'string') {
+        parsedData = JSON.parse(workflowResult.data);
+      } else {
+        parsedData = workflowResult.data;
+      }
+      console.log('解析后的工作流数据:', JSON.stringify(parsedData, null, 2));
+      
+      // 检查是否有output数组
+      if (!parsedData.output || !Array.isArray(parsedData.output)) {
+        console.error('工作流结果中没有output数组或格式不正确:', parsedData);
+        return [];
+      }
+      
+      console.log('output数组长度:', parsedData.output.length);
+      
+      // 验证和处理每个问题对象
+      const questions = parsedData.output.map((item: any, index: number) => {
         try {
-          // 移除可能的转义字符
-          const cleanItem = item.replace(/\\/g, '');
-          console.log(cleanItem,'cleanItem')
-          return JSON.parse(cleanItem);
+          // 验证必要字段
+          if (!item || typeof item !== 'object') {
+            console.error(`问题 #${index} 不是有效的对象:`, item);
+            return null;
+          }
+          
+          const requiredFields = ['ques_name', 'ques_desc', 'ques_in', 'ques_out', 'ques_ans'];
+          const missingFields = requiredFields.filter(field => !item[field]);
+          
+          if (missingFields.length > 0) {
+            console.error(`问题 #${index} 缺少必要字段:`, missingFields);
+            return null;
+          }
+          
+          // 返回验证过的问题对象
+          return {
+            ques_name: item.ques_name,
+            ques_desc: item.ques_desc,
+            ques_in: item.ques_in,
+            ques_out: item.ques_out,
+            ques_ans: item.ques_ans,
+            ques_tag: item.ques_tag || ''  // 可选字段
+          };
         } catch (e) {
-          console.error('解析问题数据失败:', e);
+          console.error(`处理问题 #${index} 失败:`, e);
+          console.error('原始数据:', item);
           return null;
         }
-      }).filter(Boolean); // 过滤掉解析失败的项目
-
+      }).filter(Boolean); // 过滤掉无效的问题
+      
+      console.log('成功解析的问题数量:', questions.length);
+      console.log('解析后的问题列表:', JSON.stringify(questions, null, 2));
+      
       // 清除 localStorage 中的数据
       localStorage.removeItem('coze_access_token');
       localStorage.removeItem('coze_workflow_input');
@@ -266,10 +379,13 @@ export default function ProblemsPage() {
       return questions;
     } catch (e) {
       console.error('解析工作流结果失败:', e);
+      console.error('原始数据:', workflowResult.data);
+      
       // 即使解析失败也清除 localStorage 中的数据
       localStorage.removeItem('coze_access_token');
       localStorage.removeItem('coze_workflow_input');
       localStorage.removeItem('coze_auth_state');
+      
       return [];
     }
   }, [workflowResult]);
@@ -277,22 +393,109 @@ export default function ProblemsPage() {
   // 处理导入到数据库
   const handleImport = async () => {
     try {
+      if (!parsedQuestions || parsedQuestions.length === 0) {
+        toast({
+          title: "导入失败",
+          description: "没有有效的问题数据可导入",
+          variant: "destructive",
+        });
+        return;
+      }
+      
       setIsImporting(true);
       console.log('准备导入的问题数据:', parsedQuestions);
       
-      const result = await problemService.importProblems(parsedQuestions);
+      // 验证每个问题的格式
+      const validQuestions = parsedQuestions.filter((question: Question) => {
+        const isValid = 
+          question && 
+          typeof question === 'object' &&
+          typeof question.ques_name === 'string' && 
+          typeof question.ques_desc === 'string' &&
+          typeof question.ques_in === 'string' &&
+          typeof question.ques_out === 'string';
+          
+        if (!isValid) {
+          console.error('无效的问题数据:', question);
+        }
+        
+        return isValid;
+      });
       
-      if (result.code !== 0) {
+      if (validQuestions.length === 0) {
+        throw new Error('没有有效的问题数据可导入');
+      }
+      
+      if (validQuestions.length < parsedQuestions.length) {
+        console.warn(`过滤掉了 ${parsedQuestions.length - validQuestions.length} 个无效问题`);
+      }
+      
+      // 获取用户角色ID
+      const userStr = localStorage.getItem('user');
+      if (!userStr) {
+        throw new Error('未登录');
+      }
+      const user = JSON.parse(userStr);
+      const roleId = user.role_id;
+      
+      // 检查用户权限
+      if (roleId !== 1 && roleId !== 2) { // 非教师或管理员
+        throw new Error('权限不足，只有教师或管理员可以导入问题');
+      }
+      
+      console.log('发送导入请求，参数:', {
+        problems: validQuestions,
+        role_id: roleId
+      });
+      
+      // 调用导入API
+      const result = await problemService.importProblems({
+        problems: validQuestions,
+        role_id: roleId
+      });
+      
+      console.log('导入结果:', result);
+      
+      if (result.code !== 200) {
         throw new Error(result.message || '导入失败');
       }
       
-      toast({
-        title: "导入成功",
-        description: `成功导入 ${parsedQuestions.length} 个问题`,
-      });
+      // 显示导入结果
+      if (result.data) {
+        const { imported, failed } = result.data;
+        const successCount = imported?.length || 0;
+        const failedCount = failed?.length || 0;
+        
+        let description = `成功导入 ${successCount} 个问题`;
+        if (failedCount > 0) {
+          description += `，${failedCount} 个问题导入失败`;
+        }
+        
+        toast({
+          title: "导入完成",
+          description,
+          variant: successCount > 0 ? "default" : "destructive",
+          className: successCount > 0 ? "bg-green-100 border-green-400 text-black" : "bg-yellow-100 border-yellow-400 text-black",
+        });
+        
+        // 如果有失败的问题，显示详细信息
+        if (failedCount > 0) {
+          console.error('导入失败的问题:', failed);
+        }
+      } else {
+        toast({
+          title: "导入成功",
+          description: `成功导入问题`,
+          variant: "default",
+          className: "bg-green-100 border-green-400 text-black",
+        });
+      }
       
       // 导入成功后关闭模态框
       setIsResultDialogOpen(false);
+      
+      // 刷新问题列表
+      window.location.reload();
     } catch (error) {
       console.error('导入失败:', error);
       toast({
@@ -302,6 +505,87 @@ export default function ProblemsPage() {
       });
     } finally {
       setIsImporting(false);
+    }
+  };
+
+  // 处理删除点击
+  const handleDeleteClick = (problem: ProblemData, e: React.MouseEvent) => {
+    e.preventDefault(); // 阻止链接导航
+    e.stopPropagation(); // 阻止事件冒泡
+    setProblemToDelete(problem);
+    setIsDeleteConfirmOpen(true);
+  };
+
+  // 执行删除操作
+  const handleDeleteConfirm = async () => {
+    if (!problemToDelete) return;
+    
+    try {
+      setIsDeleting(true);
+      
+      // 获取当前用户信息
+      const userStr = localStorage.getItem('user');
+      if (!userStr) {
+        toast({
+          variant: "destructive",
+          title: "错误",
+          description: "未登录",
+          className: "text-black"
+        });
+        return;
+      }
+      
+      const user = JSON.parse(userStr);
+      const roleId = user.role_id;
+      
+      // 检查是否为管理员
+      if (roleId !== 2) {
+        toast({
+          variant: "destructive",
+          title: "错误",
+          description: "权限不足，只有管理员可以删除问题",
+          className: "text-black"
+        });
+        return;
+      }
+      
+      // 调用API删除问题
+      const result = await problemService.deleteProblem({
+        problem_id: problemToDelete.problem_id,
+        role_id: roleId
+      });
+      
+      console.log("删除问题响应:", result);
+      
+      if (result.code === 200) {
+        toast({
+          variant: "default",
+          title: "成功",
+          description: result.message || "问题删除成功"
+        });
+        
+        // 从本地数据中移除
+        setProblems(prev => prev.filter(p => p.problem_id !== problemToDelete.problem_id));
+        
+        setIsDeleteConfirmOpen(false);
+      } else {
+        toast({
+          variant: "destructive",
+          title: "错误",
+          description: result.message ?? "删除问题失败",
+          className: "text-black"
+        });
+      }
+    } catch (error) {
+      console.error('删除问题失败:', error);
+      toast({
+        variant: "destructive",
+        title: "错误",
+        description: error instanceof Error ? error.message : "删除失败",
+        className: "text-black"
+      });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -324,7 +608,7 @@ export default function ProblemsPage() {
   return (
     <div className="max-w-4xl mx-auto relative min-h-screen pb-20">
       <h1 className="text-2xl font-bold mb-6">问题列表</h1>
-
+      
       <div className="flex gap-4 mb-6">
         <div className="flex-1 relative">
           <Input
@@ -355,20 +639,39 @@ export default function ProblemsPage() {
       <div className="space-y-3">
         {currentProblems.map((problem) => (
           <Card key={problem.problem_id} className="overflow-hidden">
-            <Link
-              href={`/problems/${problem.problem_id}?data=${encodeURIComponent(JSON.stringify(problem))}`}
-              className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
-            >
-              <div className="flex items-center space-x-4">
-                <span className="text-muted-foreground font-mono">
-                  #{problem.problem_id.toString().padStart(3, '0')}
-                </span>
-                <span className="font-medium">{problem.title}</span>
-              </div>
-              {problem.status !== undefined && (
-                <ProblemStatusBadge status={problem.status === 1 ? "CORRECT" : problem.status === -1 ? "WRONG" : "PENDING"} />
+            <div className="flex w-full">
+              <Link
+                href={`/problems/${problem.problem_id}?data=${encodeURIComponent(JSON.stringify(problem))}`}
+                className="flex-1 flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
+              >
+                <div className="flex items-center space-x-4">
+                  <span className="text-muted-foreground font-mono">
+                    #{problem.problem_id.toString().padStart(3, '0')}
+                  </span>
+                  <span className="font-medium">{problem.title}</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  {problem.status !== undefined && (
+                    <ProblemStatusBadge status={problem.status === 1 ? "CORRECT" : problem.status === -1 ? "WRONG" : "PENDING"} />
+                  )}
+                </div>
+              </Link>
+              {userRole === "admin" && (
+                <button
+                  onClick={(e) => handleDeleteClick(problem, e)}
+                  className="p-4 text-red-500 hover:text-red-700 hover:bg-red-50 transition-colors"
+                  title="删除问题"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 6h18"></path>
+                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                    <line x1="10" y1="11" x2="10" y2="17"></line>
+                    <line x1="14" y1="11" x2="14" y2="17"></line>
+                  </svg>
+                </button>
               )}
-            </Link>
+            </div>
           </Card>
         ))}
 
@@ -428,7 +731,7 @@ export default function ProblemsPage() {
       )}
 
       {/* 悬浮按钮（仅管理员可见） */}
-      {isAdmin && (
+      {userRole === "admin" && (
         <div className="fixed bottom-8 right-8">
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
@@ -552,6 +855,35 @@ export default function ProblemsPage() {
               </div>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 删除确认对话框 */}
+      <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>确认删除</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p>您确定要删除问题 <span className="font-bold">#{problemToDelete?.problem_id.toString().padStart(3, '0')} {problemToDelete?.title}</span> 吗？</p>
+            <p className="text-sm text-muted-foreground mt-2">此操作将删除该问题的所有相关数据，且无法恢复。</p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsDeleteConfirmOpen(false)}
+              disabled={isDeleting}
+            >
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteConfirm}
+              disabled={isDeleting}
+            >
+              {isDeleting ? "删除中..." : "确认删除"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

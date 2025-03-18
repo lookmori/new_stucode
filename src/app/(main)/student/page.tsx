@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Table,
   TableBody,
@@ -30,7 +30,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { toast } from "sonner";
-import { Search, Plus } from "lucide-react";
+import { Search, Plus, Trash2 } from "lucide-react";
 import {
   Pagination,
   PaginationContent,
@@ -40,6 +40,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
+import { userService, UserData, UserInfo } from "@/lib/services/user";
 
 // 模拟学生数据 - 增加更多数据以展示分页效果
 const mockStudents = [
@@ -94,16 +95,102 @@ const addFormSchema = z.object({
 type Role = "admin" | "teacher" | "student";
 
 export default function StudentPage() {
-  // 当前用户角色（模拟数据）
-  const userRole: Role = "teacher";
-  
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  // 修改状态定义
+  const [students, setStudents] = useState<{id: string; username: string; email: string}[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [userRole, setUserRole] = useState<Role | null>(null);
+  const [userId, setUserId] = useState<number | null>(null);
+  const [roleId, setRoleId] = useState<number | null>(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<typeof mockStudents[0] | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const pageSize = 10;
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [studentToDelete, setStudentToDelete] = useState<typeof mockStudents[0] | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // 获取用户角色和学生列表
+  useEffect(() => {
+    const fetchUserRoleAndStudents = async () => {
+      try {
+        // 从 localStorage 获取用户信息
+        const userStr = localStorage.getItem('user');
+        if (!userStr) {
+          throw new Error('未登录');
+        }
+        
+        console.log("原始用户信息字符串:", userStr);
+        const user = JSON.parse(userStr);
+        console.log("解析后的用户对象:", user);
+        
+        // 设置用户ID和角色ID - 尝试不同的属性名
+        let currentUserId;
+        if (user.user_id !== undefined) {
+          currentUserId = user.user_id;
+        } else if (user.id !== undefined) {
+          currentUserId = user.id;
+        } else if (user.userId !== undefined) {
+          currentUserId = user.userId;
+        } else {
+          // 如果找不到任何ID属性，尝试记录完整的对象
+          console.error("无法获取用户ID，用户对象:", JSON.stringify(user));
+          throw new Error('无法获取用户ID');
+        }
+        
+        const currentRoleId = user.role_id || user.roleId;
+        console.log("提取的用户信息:", { currentUserId, currentRoleId });
+        
+        setUserId(currentUserId);
+        setRoleId(currentRoleId);
+        
+        // 设置用户角色
+        const roleMap: Record<number, Role> = {
+          2: 'admin',
+          1: 'teacher',
+          0: 'student'
+        };
+        setUserRole(roleMap[currentRoleId] || 'student');
+        
+        // 调用API获取学生列表
+        const result = await userService.getUserInfo({
+          user_id: currentUserId,
+          role_id: currentRoleId,
+          find_id: 0 // 查询学生列表
+        });
+        
+        console.log("获取学生列表响应:", result);
+        
+        if (result.code === 200 && result.data) {
+          // 转换数据格式
+          const studentList = result.data.map(student => ({
+            id: student.userId.toString(),
+            username: student.username,
+            email: student.email
+          }));
+          
+          setStudents(studentList);
+        } else {
+          throw new Error(result.message || '获取学生列表失败');
+        }
+      } catch (error) {
+        console.error('获取数据失败:', error);
+        toast.error(error instanceof Error ? error.message : "获取数据失败", {
+          duration: 3000, // 3秒后自动消失
+        });
+        
+        // 如果API调用失败，使用模拟数据（仅用于开发）
+        if (process.env.NODE_ENV !== 'production') {
+          setStudents(mockStudents);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchUserRoleAndStudents();
+  }, []);
 
   const form = useForm<z.infer<typeof editFormSchema>>({
     resolver: zodResolver(editFormSchema),
@@ -133,30 +220,223 @@ export default function StudentPage() {
     setIsEditDialogOpen(true);
   };
 
-  const onEditSubmit = (values: z.infer<typeof editFormSchema>) => {
-    // 这里应该调用API更新学生信息
-    console.log("更新学生信息:", { id: selectedStudent?.id, ...values });
+  const onEditSubmit = async (values: z.infer<typeof editFormSchema>) => {
+    if (!selectedStudent) return;
     
-    // 模拟成功响应
-    toast.success("学生信息已更新");
-    setIsEditDialogOpen(false);
+    try {
+      // 获取当前用户信息
+      const userStr = localStorage.getItem('user');
+      if (!userStr) {
+        toast.error("未登录", {
+          duration: 3000, // 3秒后自动消失
+        });
+        return;
+      }
+      
+      const user = JSON.parse(userStr);
+      const operatorId = user.user_id || user.id;
+      const roleId = user.role_id;
+      
+      // 检查是否为教师或管理员
+      if (roleId !== 1 && roleId !== 2) {
+        toast.error("权限不足，只有教师或管理员可以修改学生信息", {
+          duration: 3000, // 3秒后自动消失
+        });
+        return;
+      }
+      
+      // 检查是否至少提供了一项要修改的信息
+      if (!values.username && !values.password) {
+        toast.error("请至少提供一项要修改的信息（用户名或密码）", {
+          duration: 3000, // 3秒后自动消失
+        });
+        return;
+      }
+      
+      // 准备请求参数
+      const params: any = {
+        operator_id: operatorId,
+        role_id: roleId,
+        user_id: parseInt(selectedStudent.id)
+      };
+      
+      // 只添加有值的字段
+      if (values.username) {
+        params.username = values.username;
+      }
+      
+      if (values.password) {
+        params.password = values.password;
+      }
+      
+      // 调用API修改用户信息
+      const result = await userService.updateUser(params);
+      
+      console.log("修改学生信息响应:", result);
+      
+      if (result.code === 200) {
+        toast.success(result.message || "学生信息已更新", {
+          duration: 3000, // 3秒后自动消失
+        });
+        
+        // 更新本地数据
+        if (values.username) {
+          setStudents(prev => 
+            prev.map(s => 
+              s.id === selectedStudent.id 
+                ? { ...s, username: values.username } 
+                : s
+            )
+          );
+        }
+        
+        setIsEditDialogOpen(false);
+      } else {
+        toast.error(result.message ?? "修改学生信息失败", {
+          duration: 3000, // 3秒后自动消失
+        });
+      }
+    } catch (error) {
+      console.error('修改学生信息失败:', error);
+      toast.error(error instanceof Error ? error.message : "修改失败", {
+        duration: 3000, // 3秒后自动消失
+      });
+    }
   };
 
-  const onAddSubmit = (values: z.infer<typeof addFormSchema>) => {
-    // 这里应该调用API添加学生
-    console.log("添加学生:", values);
+  const onAddSubmit = async (values: z.infer<typeof addFormSchema>) => {
+    try {
+      // 获取当前用户角色ID
+      const userStr = localStorage.getItem('user');
+      if (!userStr) {
+        toast.error("未登录", {
+          duration: 3000, // 3秒后自动消失
+        });
+        return;
+      }
+      
+      const user = JSON.parse(userStr);
+      const roleId = user.role_id;
+      
+      // 检查是否为教师或管理员
+      if (roleId !== 1 && roleId !== 2) {
+        toast.error("权限不足，只有教师或管理员可以添加学生", {
+          duration: 3000, // 3秒后自动消失
+        });
+        return;
+      }
+      
+      // 调用API添加学生
+      const result = await userService.addStudent({
+        username: values.username,
+        email: values.email,
+        password: values.password,
+        role_id: roleId
+      });
+      
+      console.log("添加学生响应:", result);
+      
+      if (result.code === 200 && result.data) {
+        const userData = result.data;
+        toast.success(result.message || "学生添加成功", {
+          duration: 3000, // 3秒后自动消失
+        });
+        
+        // 添加到本地数据
+        setStudents(prev => [...prev, {
+          id: String(userData.user_id),
+          username: userData.username,
+          email: userData.email
+        }]);
+        
+        setIsAddDialogOpen(false);
+        addForm.reset();
+      } else {
+        toast.error(result.message ?? "添加学生失败", {
+          duration: 3000, // 3秒后自动消失
+        });
+      }
+    } catch (error) {
+      console.error('添加学生失败:', error);
+      toast.error(error instanceof Error ? error.message : "添加失败", {
+        duration: 3000, // 3秒后自动消失
+      });
+    }
+  };
+
+  // 处理删除点击
+  const handleDeleteClick = (student: typeof mockStudents[0]) => {
+    setStudentToDelete(student);
+    setIsDeleteConfirmOpen(true);
+  };
+
+  // 执行删除操作
+  const handleDeleteConfirm = async () => {
+    if (!studentToDelete) return;
     
-    // 模拟成功响应
-    toast.success("学生添加成功");
-    setIsAddDialogOpen(false);
-    addForm.reset();
+    try {
+      setIsDeleting(true);
+      
+      // 获取当前用户角色ID
+      const userStr = localStorage.getItem('user');
+      if (!userStr) {
+        toast.error("未登录", {
+          duration: 3000, // 3秒后自动消失
+        });
+        return;
+      }
+      
+      const user = JSON.parse(userStr);
+      const roleId = user.role_id;
+      
+      // 检查是否为管理员
+      if (roleId !== 2) {
+        toast.error("权限不足，只有管理员可以删除用户", {
+          duration: 3000, // 3秒后自动消失
+        });
+        return;
+      }
+      
+      // 调用API删除用户
+      const result = await userService.deleteUser({
+        user_id: parseInt(studentToDelete.id),
+        role_id: roleId
+      });
+      
+      console.log("删除用户响应:", result);
+      
+      if (result.code === 200) {
+        toast.success(result.message || "学生删除成功", {
+          duration: 3000, // 3秒后自动消失
+        });
+        
+        // 从本地数据中移除
+        setStudents(prev => prev.filter(s => s.id !== studentToDelete.id));
+        
+        setIsDeleteConfirmOpen(false);
+      } else {
+        toast.error(result.message ?? "删除学生失败", {
+          duration: 3000, // 3秒后自动消失
+        });
+      }
+    } catch (error) {
+      console.error('删除学生失败:', error);
+      toast.error(error instanceof Error ? error.message : "删除失败", {
+        duration: 3000, // 3秒后自动消失
+      });
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   // 检查是否有编辑权限
-  const hasEditPermission = ["admin", "teacher"].includes(userRole);
+  const hasEditPermission = userRole ? ["admin", "teacher"].includes(userRole) : false;
+  
+  // 检查是否有删除权限（只有管理员）
+  const hasDeletePermission = userRole === "admin";
 
   // 根据搜索条件筛选学生
-  const filteredStudents = mockStudents.filter(student => 
+  const filteredStudents = students.filter(student => 
     student.username.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -240,7 +520,9 @@ export default function StudentPage() {
             <TableRow>
               <TableHead className="font-bold text-black dark:text-white">用户名</TableHead>
               <TableHead className="font-bold text-black dark:text-white">邮箱</TableHead>
-              {hasEditPermission && <TableHead className="text-right font-bold text-black dark:text-white">操作</TableHead>}
+              {(hasEditPermission || hasDeletePermission) && 
+                <TableHead className="text-right font-bold text-black dark:text-white">操作</TableHead>
+              }
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -249,22 +531,34 @@ export default function StudentPage() {
                 <TableRow key={student.id}>
                   <TableCell className="font-medium">{student.username}</TableCell>
                   <TableCell>{student.email}</TableCell>
-                  {hasEditPermission && (
-                    <TableCell className="text-right">
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => handleEditClick(student)}
-                      >
-                        修改信息
-                      </Button>
+                  {(hasEditPermission || hasDeletePermission) && (
+                    <TableCell className="text-right space-x-2">
+                      {hasEditPermission && (
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => handleEditClick(student)}
+                        >
+                          修改信息
+                        </Button>
+                      )}
+                      {hasDeletePermission && (
+                        <Button 
+                          variant="destructive" 
+                          size="sm"
+                          onClick={() => handleDeleteClick(student)}
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" />
+                          删除
+                        </Button>
+                      )}
                     </TableCell>
                   )}
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={hasEditPermission ? 3 : 2} className="text-center py-6 text-muted-foreground">
+                <TableCell colSpan={(hasEditPermission || hasDeletePermission) ? 3 : 2} className="text-center py-6 text-muted-foreground">
                   没有找到匹配的学生
                 </TableCell>
               </TableRow>
@@ -405,6 +699,35 @@ export default function StudentPage() {
               </DialogFooter>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* 删除确认对话框 */}
+      <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>确认删除</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p>您确定要删除学生 <span className="font-bold">{studentToDelete?.username}</span> 吗？</p>
+            <p className="text-sm text-muted-foreground mt-2">此操作将删除该用户的所有相关数据，且无法恢复。</p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsDeleteConfirmOpen(false)}
+              disabled={isDeleting}
+            >
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteConfirm}
+              disabled={isDeleting}
+            >
+              {isDeleting ? "删除中..." : "确认删除"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

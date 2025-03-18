@@ -15,6 +15,7 @@ export interface LoginData {
 }
 
 export interface LoginResponseData {
+  user_id: number;
   username: string;
   email: string;
   role_id: number;
@@ -42,6 +43,13 @@ export interface SendCodeData {
 export interface CodeVerification {
   code: string;
   expiresAt: number;
+}
+
+export interface ResetPasswordData {
+  email: string;
+  code: string;
+  newPassword: string;
+  passwordHint?: string;
 }
 
 // 设置token到cookie和localStorage
@@ -108,5 +116,10 @@ export const authService = {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     localStorage.removeItem('email');
+  },
+
+  // 重置密码
+  resetPassword: (data: ResetPasswordData) => {
+    return http.post<{ success: boolean }>('/reset-password', data);
   },
 }; 

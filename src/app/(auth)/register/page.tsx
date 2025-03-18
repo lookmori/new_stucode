@@ -65,27 +65,119 @@ export default function RegisterPage() {
         code: values.code,
       });
 
-      const userData = await authService.register({
+      const response = await authService.register({
         email: values.email,
         password: values.password,
         role_id: 0, // 默认为学生角色
         code: values.code,
       });
 
-      console.log('注册成功:', userData);
+      console.log('注册响应:', response);
 
-      toast({
-        title: "注册成功",
-        description: "请前往登录页面进行登录",
-      });
-      router.push('/login');
-    } catch (error) {
+      // 检查响应状态码
+      if (response.code === 200) {
+        toast({
+          title: "注册成功",
+          description: "请前往登录页面进行登录",
+          className: "bg-green-100 border-green-400 text-black",
+        });
+        router.push('/login');
+      } else {
+        // 处理其他错误情况
+        let errorMessage = response.message || "请稍后重试";
+        let errorTitle = "注册失败";
+        let bgColor = "bg-red-100 border-red-400";
+        let shouldRedirect = false;
+        
+        // 检查是否是邮箱已存在的错误
+        if (response.code === 400) {
+          if (errorMessage.includes("邮箱已注册")) {
+            errorTitle = "邮箱已存在";
+            errorMessage = "该邮箱已注册，请直接登录或使用其他邮箱";
+            bgColor = "bg-blue-100 border-blue-400";
+            shouldRedirect = true;
+          } else if (errorMessage.includes("验证码无效") || errorMessage.includes("验证码已过期")) {
+            errorMessage = "验证码无效或已过期，请重新获取";
+          } else if (errorMessage.includes("邮箱格式")) {
+            errorMessage = "邮箱格式不正确，请检查后重试";
+          } else if (errorMessage.includes("密码长度")) {
+            errorMessage = "密码长度不能小于6位";
+          } else if (errorMessage.includes("角色ID")) {
+            errorMessage = "角色ID不正确";
+          }
+        } else if (response.code === 429) {
+          errorMessage = "请求次数过多，请稍后再试";
+        } else if (response.code === 500) {
+          errorMessage = "服务器错误，请稍后再试";
+        }
+        
+        toast({
+          title: errorTitle,
+          description: errorMessage,
+          variant: "default",
+          className: `${bgColor} text-black`,
+        });
+        
+        // 如果是邮箱已存在的错误，等待3秒后跳转到登录页
+        if (shouldRedirect) {
+          setTimeout(() => {
+            router.push('/login');
+          }, 3000);
+        }
+      }
+    } catch (error: any) {
       console.error('注册失败:', error);
+      
+      // 根据错误类型显示不同的错误信息
+      let errorMessage = "注册失败，请稍后重试";
+      let errorTitle = "注册失败";
+      let bgColor = "bg-red-100 border-red-400";
+      let shouldRedirect = false;
+      
+      if (error.message && error.message.includes("邮箱已注册")) {
+        errorTitle = "邮箱已存在";
+        errorMessage = "该邮箱已注册，请直接登录或使用其他邮箱";
+        bgColor = "bg-blue-100 border-blue-400";
+        shouldRedirect = true;
+      } else if (error.message && error.message.includes("验证码无效") || error.message && error.message.includes("验证码已过期")) {
+        errorMessage = "验证码无效或已过期，请重新获取";
+      } else if (error.message && error.message.includes("邮箱格式")) {
+        errorMessage = "邮箱格式不正确，请检查后重试";
+      } else if (error.message && error.message.includes("密码长度")) {
+        errorMessage = "密码长度不能小于6位";
+      } else if (error.message && error.message.includes("角色ID")) {
+        errorMessage = "角色ID不正确";
+      } else if (error.code === 400) {
+        // 处理其他400错误
+        if (error.message) {
+          errorMessage = error.message;
+        } else {
+          errorMessage = "请求参数错误，请检查输入信息";
+        }
+      } else if (error.code === 0) {
+        errorTitle = "网络错误";
+        errorMessage = error.message || "网络连接失败，请检查网络设置后重试";
+        bgColor = "bg-yellow-100 border-yellow-400";
+      } else if (error.code === 429) {
+        errorMessage = "请求次数过多，请稍后再试";
+      } else if (error.code === 500) {
+        errorMessage = "服务器错误，请稍后再试";
+      }
+      
       toast({
-        title: "注册失败",
-        description: error instanceof Error ? error.message : "请稍后重试",
-        variant: "destructive",
+        title: errorTitle,
+        description: errorMessage,
+        variant: "default",
+        duration: 5000,
+        className: `${bgColor} text-black`,
       });
+      
+      // 如果是邮箱已存在的错误，等待3秒后跳转到登录页
+      if (shouldRedirect) {
+        setTimeout(() => {
+          router.push('/login');
+        }, 3000);
+      }
     }
   }
 
@@ -111,37 +203,72 @@ export default function RegisterPage() {
 
     try {
       console.log('正在发送验证码到:', email);
-      const result = await authService.sendVerificationCode(email);
-      console.log('验证码发送成功:', result);
+      const response = await authService.sendVerificationCode(email);
+      console.log('验证码发送成功:', response);
       
-      // 保存验证码信息
-      setVerification({
-        code: result.code,
-        expiresAt: Date.now() + result.expires_in * 1000,
-      });
-      
-      toast({
-        title: "发送成功",
-        description: "验证码已发送，请注意查收",
-      });
-
-      // 开始倒计时
-      setCountdown(60);
-      const timer = setInterval(() => {
-        setCountdown((prev) => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            return 0;
-          }
-          return prev - 1;
+      if (response.code === 200 && response.data) {
+        // 保存验证码信息
+        setVerification({
+          code: response.data.code,
+          expiresAt: Date.now() + response.data.expires_in * 1000,
         });
-      }, 1000);
-    } catch (error) {
+        
+        toast({
+          title: "发送成功",
+          description: "验证码已发送，请注意查收",
+        });
+
+        // 开始倒计时
+        setCountdown(60);
+        const timer = setInterval(() => {
+          setCountdown((prev) => {
+            if (prev <= 1) {
+              clearInterval(timer);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+      } else {
+        toast({
+          title: "发送失败",
+          description: response.message || "验证码发送失败，请稍后重试",
+          variant: "default",
+          className: "bg-red-100 border-red-400 text-black",
+        });
+      }
+    } catch (error: any) {
       console.error('验证码发送失败:', error);
+      
+      // 根据错误类型显示不同的错误信息
+      let errorMessage = "验证码发送失败，请稍后重试";
+      let errorTitle = "发送失败";
+      let bgColor = "bg-red-100 border-red-400";
+      
+      if (error.message && error.message.includes("邮箱已注册")) {
+        errorMessage = "该邮箱已注册，请直接登录或使用其他邮箱";
+      } else if (error.message && error.message.includes("邮箱格式")) {
+        errorMessage = "邮箱格式不正确，请检查后重试";
+      } else if (error.message && error.message.includes("发送频率")) {
+        errorMessage = "发送频率过高，请稍后再试";
+      } else if (error.message && error.message.includes("邮箱不存在")) {
+        errorMessage = "该邮箱未注册，请先注册";
+      } else if (error.code === 0) {
+        errorTitle = "网络错误";
+        errorMessage = error.message || "网络连接失败，请检查网络设置后重试";
+        bgColor = "bg-yellow-100 border-yellow-400";
+      } else if (error.code === 429) {
+        errorMessage = "发送次数过多，请稍后再试";
+      } else if (error.code === 500) {
+        errorMessage = "服务器错误，请稍后再试";
+      }
+      
       toast({
-        title: "发送失败",
-        description: error instanceof Error ? error.message : "请稍后重试",
-        variant: "destructive",
+        title: errorTitle,
+        description: errorMessage,
+        variant: "default",
+        duration: 5000,
+        className: `${bgColor} text-black`,
       });
     }
   };
