@@ -29,7 +29,7 @@ import { Input } from "@/components/ui/input";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { toast } from "sonner";
+import { Toaster, toast } from "sonner";
 import { Search, Plus, Trash2 } from "lucide-react";
 import {
   Pagination,
@@ -228,7 +228,7 @@ export default function StudentPage() {
       const userStr = localStorage.getItem('user');
       if (!userStr) {
         toast.error("未登录", {
-          duration: 3000, // 3秒后自动消失
+          duration: 3000,
         });
         return;
       }
@@ -240,7 +240,7 @@ export default function StudentPage() {
       // 检查是否为教师或管理员
       if (roleId !== 1 && roleId !== 2) {
         toast.error("权限不足，只有教师或管理员可以修改学生信息", {
-          duration: 3000, // 3秒后自动消失
+          duration: 3000,
         });
         return;
       }
@@ -248,59 +248,52 @@ export default function StudentPage() {
       // 检查是否至少提供了一项要修改的信息
       if (!values.username && !values.password) {
         toast.error("请至少提供一项要修改的信息（用户名或密码）", {
-          duration: 3000, // 3秒后自动消失
+          duration: 3000,
         });
         return;
       }
       
-      // 准备请求参数
-      const params: any = {
-        operator_id: operatorId,
-        role_id: roleId,
-        user_id: parseInt(selectedStudent.id)
-      };
-      
-      // 只添加有值的字段
-      if (values.username) {
-        params.username = values.username;
-      }
-      
-      if (values.password) {
-        params.password = values.password;
-      }
-      
-      // 调用API修改用户信息
-      const result = await userService.updateUser(params);
+      // 调用API修改学生信息
+      const result = await userService.updateUser({
+        user_id: parseInt(selectedStudent.id),
+        username: values.username || undefined,
+        password: values.password || undefined,
+        role_id: roleId
+      });
       
       console.log("修改学生信息响应:", result);
       
+      // 无论成功与否都显示服务器返回的消息
       if (result.code === 200) {
-        toast.success(result.message || "学生信息已更新", {
-          duration: 3000, // 3秒后自动消失
+        toast.success(result.message || "修改成功", {
+          duration: 3000,
         });
         
         // 更新本地数据
-        if (values.username) {
-          setStudents(prev => 
-            prev.map(s => 
-              s.id === selectedStudent.id 
-                ? { ...s, username: values.username } 
-                : s
-            )
-          );
-        }
+        setStudents(prev => prev.map(student => 
+          student.id === selectedStudent.id
+            ? { ...student, username: values.username || student.username }
+            : student
+        ));
         
         setIsEditDialogOpen(false);
+        form.reset();
       } else {
-        toast.error(result.message ?? "修改学生信息失败", {
-          duration: 3000, // 3秒后自动消失
+        toast.error(result.message || "修改失败", {
+          duration: 3000,
         });
       }
     } catch (error) {
       console.error('修改学生信息失败:', error);
-      toast.error(error instanceof Error ? error.message : "修改失败", {
-        duration: 3000, // 3秒后自动消失
-      });
+      if (error instanceof Error) {
+        toast.error(error.message, {
+          duration: 3000,
+        });
+      } else {
+        toast.error("修改失败，请稍后重试", {
+          duration: 3000,
+        });
+      }
     }
   };
 
@@ -310,7 +303,7 @@ export default function StudentPage() {
       const userStr = localStorage.getItem('user');
       if (!userStr) {
         toast.error("未登录", {
-          duration: 3000, // 3秒后自动消失
+          style: { color: 'black' }
         });
         return;
       }
@@ -321,7 +314,7 @@ export default function StudentPage() {
       // 检查是否为教师或管理员
       if (roleId !== 1 && roleId !== 2) {
         toast.error("权限不足，只有教师或管理员可以添加学生", {
-          duration: 3000, // 3秒后自动消失
+          style: { color: 'black' }
         });
         return;
       }
@@ -336,30 +329,37 @@ export default function StudentPage() {
       
       console.log("添加学生响应:", result);
       
-      if (result.code === 200 && result.data) {
-        const userData = result.data;
+      if (result.code === 200) {
         toast.success(result.message || "学生添加成功", {
-          duration: 3000, // 3秒后自动消失
+          style: { color: 'black' }
         });
         
-        // 添加到本地数据
-        setStudents(prev => [...prev, {
-          id: String(userData.user_id),
-          username: userData.username,
-          email: userData.email
-        }]);
+        if (result.data) {
+          const userData = result.data;
+          // 添加到本地数据
+          setStudents(prev => [...prev, {
+            id: String(userData.user_id),
+            username: userData.username,
+            email: userData.email
+          }]);
+        }
         
         setIsAddDialogOpen(false);
         addForm.reset();
       } else {
-        toast.error(result.message ?? "添加学生失败", {
-          duration: 3000, // 3秒后自动消失
+      setIsAddDialogOpen(false);
+        addForm.reset();
+        console.log("添加学生失败:", result);
+        toast.error(result.message || "添加学生失败", {
+          style: { color: 'black' }
         });
       }
     } catch (error) {
+    setIsAddDialogOpen(false);
+        addForm.reset();
       console.error('添加学生失败:', error);
-      toast.error(error instanceof Error ? error.message : "添加失败", {
-        duration: 3000, // 3秒后自动消失
+      toast.error("添加学生失败，请稍后重试", {
+        style: { color: 'black' }
       });
     }
   };
@@ -381,7 +381,7 @@ export default function StudentPage() {
       const userStr = localStorage.getItem('user');
       if (!userStr) {
         toast.error("未登录", {
-          duration: 3000, // 3秒后自动消失
+          duration: 3000,
         });
         return;
       }
@@ -392,7 +392,7 @@ export default function StudentPage() {
       // 检查是否为管理员
       if (roleId !== 2) {
         toast.error("权限不足，只有管理员可以删除用户", {
-          duration: 3000, // 3秒后自动消失
+          duration: 3000,
         });
         return;
       }
@@ -405,25 +405,31 @@ export default function StudentPage() {
       
       console.log("删除用户响应:", result);
       
+      // 无论成功与否都显示服务器返回的消息
       if (result.code === 200) {
-        toast.success(result.message || "学生删除成功", {
-          duration: 3000, // 3秒后自动消失
+        toast.success(result.message || "删除成功", {
+          duration: 3000,
         });
         
         // 从本地数据中移除
         setStudents(prev => prev.filter(s => s.id !== studentToDelete.id));
-        
         setIsDeleteConfirmOpen(false);
       } else {
-        toast.error(result.message ?? "删除学生失败", {
-          duration: 3000, // 3秒后自动消失
+        toast.error(result.message || "删除失败", {
+          duration: 3000,
         });
       }
     } catch (error) {
       console.error('删除学生失败:', error);
-      toast.error(error instanceof Error ? error.message : "删除失败", {
-        duration: 3000, // 3秒后自动消失
-      });
+      if (error instanceof Error) {
+        toast.error(error.message, {
+          duration: 3000,
+        });
+      } else {
+        toast.error("删除失败，请稍后重试", {
+          duration: 3000,
+        });
+      }
     } finally {
       setIsDeleting(false);
     }
@@ -487,6 +493,7 @@ export default function StudentPage() {
 
   return (
     <div className="container mx-auto py-6">
+      <Toaster richColors />
       <h1 className="text-2xl font-bold mb-6">学生信息管理</h1>
       
       {/* 搜索框和添加按钮 */}

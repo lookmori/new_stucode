@@ -652,7 +652,7 @@ export default function ProblemsPage() {
                 </div>
                 <div className="flex items-center space-x-2">
                   {problem.status !== undefined && (
-                    <ProblemStatusBadge status={problem.status === 1 ? "CORRECT" : problem.status === -1 ? "WRONG" : "PENDING"} />
+                    <ProblemStatusBadge status={problem.status === 1 ? "CORRECT" : problem.status === 2 ? "WRONG" : "PENDING"} />
                   )}
                 </div>
               </Link>

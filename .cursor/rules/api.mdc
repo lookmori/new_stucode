@@ -4,4 +4,5 @@ globs:
 alwaysApply: false
 ---
 
-所有/api开头的接口返回的格式都会有code（200 成功，其他：不成功）,data（数据信息）字段
+- 所有/api开头的接口返回的格式都会有code（200 成功，其他：不成功）,data（数据信息），message字段
+- 所有请求响应后，toast组件使用接口返回的message，展示信息

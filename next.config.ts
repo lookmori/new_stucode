@@ -18,10 +18,11 @@ const nextConfig: NextConfig = {
 
   // API代理配置
   async rewrites() {
+    const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:7001/api';
     return [
       {
         source: '/api/:path*',
-        destination: process.env.NEXT_PUBLIC_API_BASE_URL + '/:path*' || 'http://127.0.0.1:7001/api/:path*',
+        destination: `${apiBaseUrl}/:path*`,
       },
     ];
   },

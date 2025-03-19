@@ -12,6 +12,7 @@ export interface SubmitAnswerResponse {
   problem_id: number;
   status: number;
   is_correct: boolean;
+  error_message?: string;
 }
 
 export const problemService = {

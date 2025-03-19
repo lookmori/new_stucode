@@ -1,6 +1,6 @@
-const COZE_API_BASE = "https://api.coze.cn";
-const COZE_AUTH_URL = "https://www.coze.cn/api/permission/oauth2/authorize";
-const BOT_ID = "7475993452724617257";
+const COZE_API_BASE = process.env.NEXT_PUBLIC_COZE_API_BASE || "https://api.coze.cn";
+const COZE_AUTH_URL = `${COZE_API_BASE}/api/permission/oauth2/authorize`;
+const BOT_ID = process.env.NEXT_PUBLIC_COZE_BOT_ID;
 
 interface WorkflowParams {
   input: string;
@@ -21,7 +21,7 @@ export async function runWorkflow({ input }: WorkflowParams) {
       workflow_id: process.env.NEXT_PUBLIC_COZE_WORKFLOW_ID,
     });
     
-    const response = await fetch("https://api.coze.cn/v1/workflow/run", {
+    const response = await fetch(`${COZE_API_BASE}/v1/workflow/run`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -92,6 +92,11 @@ export async function runWorkflow({ input }: WorkflowParams) {
 export function initiateCozeAuth() {
   const CLIENT_ID = process.env.NEXT_PUBLIC_COZE_CLIENT_ID;
   const REDIRECT_URI = process.env.NEXT_PUBLIC_COZE_REDIRECT_URI;
+  
+  if (!CLIENT_ID || !REDIRECT_URI) {
+    throw new Error("缺少必要的环境变量配置");
+  }
+  
   const STATE = generateRandomState();
   
   // 存储state用于后续验证
@@ -101,8 +106,8 @@ export function initiateCozeAuth() {
   localStorage.setItem("coze_return_path", window.location.pathname);
   
   const authUrl = new URL(COZE_AUTH_URL);
-  authUrl.searchParams.append("client_id", CLIENT_ID!);
-  authUrl.searchParams.append("redirect_uri", REDIRECT_URI!);
+  authUrl.searchParams.append("client_id", CLIENT_ID);
+  authUrl.searchParams.append("redirect_uri", REDIRECT_URI);
   authUrl.searchParams.append("response_type", "code");
   authUrl.searchParams.append("state", STATE);
   authUrl.searchParams.append("scope", "workflow");
@@ -116,18 +121,26 @@ function generateRandomState() {
 }
 
 export async function getCozeToken(code: string) {
+  const CLIENT_ID = process.env.NEXT_PUBLIC_COZE_CLIENT_ID;
+  const CLIENT_SECRET = process.env.NEXT_PUBLIC_COZE_CLIENT_SECRET;
+  const REDIRECT_URI = process.env.NEXT_PUBLIC_COZE_REDIRECT_URI;
+
+  if (!CLIENT_ID || !CLIENT_SECRET || !REDIRECT_URI) {
+    throw new Error("缺少必要的环境变量配置");
+  }
+
   try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_COZE_API_BASE}/api/permission/oauth2/token`, {
+    const response = await fetch(`${COZE_API_BASE}/api/permission/oauth2/token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_COZE_CLIENT_SECRET}`
+        'Authorization': `Bearer ${CLIENT_SECRET}`
       },
       body: JSON.stringify({
         grant_type: 'authorization_code',
         code: code,
-        redirect_uri: process.env.NEXT_PUBLIC_COZE_REDIRECT_URI,
-        client_id: process.env.NEXT_PUBLIC_COZE_CLIENT_ID
+        redirect_uri: REDIRECT_URI,
+        client_id: CLIENT_ID
       })
     });
 

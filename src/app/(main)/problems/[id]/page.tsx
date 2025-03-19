@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ProblemData } from "@/lib/services/problems";
 import { problemService } from "@/lib/services/problem";
-import { useToast } from "@/components/ui/use-toast";
+import { Toaster, toast } from "sonner";
 
 // 配置 Monaco 资源路径
 loader.config({ paths: { vs: '/vs' } });
@@ -30,7 +30,6 @@ export default function ProblemDetailPage() {
   const { id } = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { toast } = useToast();
   const [code, setCode] = useState(defaultCode);
   const [problem, setProblem] = useState<ProblemData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -56,23 +55,21 @@ export default function ProblemDetailPage() {
         const decodedData = JSON.parse(decodeURIComponent(problemData));
         setProblem(decodedData);
       } else {
-        toast({
-          title: "错误",
-          description: "未找到问题数据",
-          variant: "destructive",
+        toast.error("未找到问题数据", {
+          duration: 5000,
+          style: { color: 'black' }
         });
       }
     } catch (error) {
       console.error('解析问题数据失败:', error);
-      toast({
-        title: "错误",
-        description: "解析问题数据失败",
-        variant: "destructive",
+      toast.error("解析问题数据失败", {
+        duration: 5000,
+        style: { color: 'black' }
       });
     } finally {
       setIsLoading(false);
     }
-  }, [searchParams, toast]);
+  }, [searchParams]);
 
   const handleSubmit = async () => {
     try {
@@ -81,10 +78,9 @@ export default function ProblemDetailPage() {
       // 获取用户信息
       const userStr = localStorage.getItem('user');
       if (!userStr) {
-        toast({
-          title: "错误",
-          description: "请先登录",
-          variant: "destructive",
+        toast.error("请先登录", {
+          duration: 5000,
+          style: { color: 'black' }
         });
         router.push('/login');
         return;
@@ -108,27 +104,28 @@ export default function ProblemDetailPage() {
 
       console.log('提交响应:', response);
 
-      if (response.code === 200 && response.data) {
-        // 显示结果
-        const resultMessage = response.data.is_correct ? "答案正确！" : "答案错误，请重试";
-        const bgColor = response.data.is_correct ? "bg-green-100 border-green-400" : "bg-red-100 border-red-400";
-        
-        toast({
-          title: "提交成功",
-          description: resultMessage,
-          className: `${bgColor} text-black`,
-        });
-
-        // 如果答案正确，可以选择跳转到下一题或留在当前页面
-        if (response.data.is_correct) {
-          // TODO: 可以添加跳转到下一题的逻辑
+      if (response.code === 200) {
+        if (response.data?.is_correct) {
+          toast.success("答案正确！即将返回问题列表", {
+            duration: 5000,
+            style: { color: 'black' }
+          });
+          // 延迟1秒后跳转
+          setTimeout(() => {
+            router.push('/problems');
+          }, 1000);
+        } else {
+          // 显示接口返回的具体错误信息
+          toast.error(response.data?.error_message || "答案错误，请检查后重试", {
+            duration: 5000,
+            style: { color: 'black' }
+          });
         }
       } else {
-        toast({
-          title: "提交失败",
-          description: response.message || "请稍后重试",
-          variant: "default",
-          className: "bg-red-100 border-red-400 text-black",
+        // 显示接口返回的错误信息
+        toast.error(response.message || "提交失败，请稍后重试", {
+          duration: 5000,
+          style: { color: 'black' }
         });
       }
     } catch (error: any) {
@@ -136,11 +133,9 @@ export default function ProblemDetailPage() {
       
       // 根据错误类型显示不同的错误信息
       let errorMessage = "提交失败，请稍后重试";
-      let bgColor = "bg-red-100 border-red-400";
       
       if (error.code === 0) {
         errorMessage = "网络连接失败，请检查网络设置后重试";
-        bgColor = "bg-yellow-100 border-yellow-400";
       } else if (error.code === 401) {
         errorMessage = "登录已过期，请重新登录";
         router.push('/login');
@@ -150,11 +145,9 @@ export default function ProblemDetailPage() {
         errorMessage = "服务器错误，请稍后再试";
       }
       
-      toast({
-        title: "提交失败",
-        description: errorMessage,
-        variant: "default",
-        className: `${bgColor} text-black`,
+      toast.error(errorMessage, {
+        duration: 5000,
+        style: { color: 'black' }
       });
     } finally {
       setIsSubmitting(false);
@@ -193,6 +186,7 @@ export default function ProblemDetailPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      <Toaster richColors />
       <div className="flex items-center justify-between mb-6">
         <Link
           href="/problems"
