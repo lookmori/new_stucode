@@ -344,7 +344,7 @@ export default function ProblemsPage() {
             return null;
           }
           
-          const requiredFields = ['ques_name', 'ques_desc', 'ques_in', 'ques_out', 'ques_ans'];
+          const requiredFields = ['ques_name', 'ques_desc'];
           const missingFields = requiredFields.filter(field => !item[field]);
           
           if (missingFields.length > 0) {
@@ -356,10 +356,10 @@ export default function ProblemsPage() {
           return {
             ques_name: item.ques_name,
             ques_desc: item.ques_desc,
-            ques_in: item.ques_in,
-            ques_out: item.ques_out,
-            ques_ans: item.ques_ans,
-            ques_tag: item.ques_tag || ''  // 可选字段
+            ques_in: item.ques_in || '',
+            ques_out: item.ques_out || '',
+            ques_ans: item.ques_ans || '',
+            ques_tag: item.ques_tag || ''
           };
         } catch (e) {
           console.error(`处理问题 #${index} 失败:`, e);
@@ -649,6 +649,11 @@ export default function ProblemsPage() {
                     #{problem.problem_id.toString().padStart(3, '0')}
                   </span>
                   <span className="font-medium">{problem.title}</span>
+                  {problem.ques_tag && (
+                    <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
+                      {problem.ques_tag}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center space-x-2">
                   {problem.status !== undefined && (

@@ -10,6 +10,7 @@ export interface ProblemData {
   example_output: string;
   status?: number;
   submit_count?: number;
+  ques_tag?: string;
 }
 
 interface GetProblemsParams {
@@ -21,9 +22,10 @@ interface ImportProblemParams {
   problems: {
     ques_name: string;
     ques_desc: string;
-    ques_in: string;
-    ques_out: string;
+    ques_in?: string;
+    ques_out?: string;
     ques_ans?: string;
+    ques_tag?: string;
   }[];
   role_id: number;
 }
