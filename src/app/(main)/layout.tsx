@@ -47,6 +47,24 @@ export default function MainLayout({
           }
         }
 
+        // 教师角色（role_id === 1）只能访问problems和student相关页面
+        if (roleId === 1) {
+          const allowedPaths = ['/problems', '/problems/', '/student'];
+          const isProblemsPath = pathname.startsWith('/problems/');
+          const isProfilePath = pathname === '/profile';
+          
+          if (!allowedPaths.includes(pathname) && !isProblemsPath && !isProfilePath) {
+            console.log('未授权访问，重定向到problems页面');
+            router.push('/problems');
+            return;
+          }
+        }
+
+        // 管理员（role_id === 2）可以访问所有页面
+        if (roleId === 2) {
+          // No additional restrictions for admin
+        }
+
         setIsLoading(false);
       } catch (error) {
         console.error('权限检查失败:', error);

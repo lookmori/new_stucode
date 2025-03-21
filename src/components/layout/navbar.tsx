@@ -84,6 +84,15 @@ export function Navbar() {
       });
     }
 
+    // 只有管理员可以看到教师管理
+    if (userRole === 2) {
+      items.push({
+        href: "/teacher",
+        label: "教师管理",
+        active: pathname === "/teacher"
+      });
+    }
+
     return items;
   };
 
